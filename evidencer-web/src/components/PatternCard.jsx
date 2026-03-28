@@ -193,7 +193,7 @@ const PatternCard = ({ pattern, patternIndex, matrix, setMatrices }) => {
   };
 
   return (
-    <div className={`bg-white border ${pattern.isSkipped ? 'border-gray-300 bg-gray-50 opacity-75 grayscale' : 'border-gray-200'} rounded-lg p-5 shadow-sm flex flex-col md:flex-row gap-6 hover:border-indigo-300 transition-all relative`}>
+    <div className={`bg-white border ${pattern.isSkipped ? 'border-gray-300 bg-gray-50 opacity-75' : 'border-gray-200'} rounded-lg p-5 shadow-sm flex flex-col md:flex-row gap-6 hover:border-indigo-300 transition-all relative`}>
       {pattern.isSkipped && (
         <div className="absolute inset-0 bg-gray-200 opacity-20 pointer-events-none rounded-lg z-20"></div>
       )}

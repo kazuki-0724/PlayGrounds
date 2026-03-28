@@ -46,7 +46,7 @@ const MatrixCard = ({ matrix, updateMatrix, removeMatrix }) => {
         <label className="md-label">マトリクス名</label>
         <input 
           type="text" 
-          className="md-input w-full font-bold text-lg text-gray-800" 
+          className="md-input w-full font-bold text-lg text-gray-800 caret-black" 
           value={matrix.name} 
           onChange={(e) => updateMatrix(matrix.id, 'name', e.target.value)} 
           placeholder="例：基本機能テスト"
@@ -66,14 +66,14 @@ const MatrixCard = ({ matrix, updateMatrix, removeMatrix }) => {
               </button>
               <div className="mb-3 w-full pr-6">
                 <label className="md-label">項目名</label>
-                <input type="text" className="md-input w-full text-sm font-bold text-gray-800" value={c.name} onChange={e => updateList('conditions', c.id, 'name', e.target.value)} placeholder="例：OS" />
+                <input type="text" className="md-input w-full text-sm font-bold text-gray-800 caret-black" value={c.name} onChange={e => updateList('conditions', c.id, 'name', e.target.value)} placeholder="例：OS" />
               </div>
               <div>
                 <label className="md-label mb-2">条件値</label>
                 <div className="flex flex-col gap-2">
                   {c.values.map((v) => (
                     <div key={v.id} className="flex items-center bg-white border border-gray-300 rounded px-2 py-1 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all w-full">
-                      <input type="text" className="bg-transparent border-none outline-none text-sm w-full py-1" value={v.value} onChange={e => updateValue('conditions', c.id, v.id, e.target.value)} placeholder="値" />
+                      <input type="text" className="bg-transparent border-none outline-none text-sm w-full py-1 caret-black" value={v.value} onChange={e => updateValue('conditions', c.id, v.id, e.target.value)} placeholder="値" />
                       <button onClick={() => removeValue('conditions', c.id, v.id)} className="text-gray-400 hover:text-red-500 ml-1 flex items-center justify-center">
                         <span className="material-icons text-[16px]">close</span>
                       </button>
@@ -103,14 +103,14 @@ const MatrixCard = ({ matrix, updateMatrix, removeMatrix }) => {
               </button>
               <div className="mb-3 w-full pr-6">
                 <label className="md-label">項目名</label>
-                <input type="text" className="md-input w-full text-sm font-bold text-gray-800" value={r.name} onChange={e => updateList('results', r.id, 'name', e.target.value)} placeholder="例：ボタン状態" />
+                <input type="text" className="md-input w-full text-sm font-bold text-gray-800 caret-black" value={r.name} onChange={e => updateList('results', r.id, 'name', e.target.value)} placeholder="例：ボタン状態" />
               </div>
               <div>
                 <label className="md-label mb-2">結果値候補</label>
                 <div className="flex flex-col gap-2">
                   {r.values.map((v) => (
                     <div key={v.id} className="flex items-center bg-white border border-gray-300 rounded px-2 py-1 focus-within:border-green-500 focus-within:ring-1 focus-within:ring-green-500 transition-all w-full">
-                      <input type="text" className="bg-transparent border-none outline-none text-sm w-full py-1" value={v.value} onChange={e => updateValue('results', r.id, v.id, e.target.value)} placeholder="値" />
+                      <input type="text" className="bg-transparent border-none outline-none text-sm w-full py-1 caret-black" value={v.value} onChange={e => updateValue('results', r.id, v.id, e.target.value)} placeholder="値" />
                       <button onClick={() => removeValue('results', r.id, v.id)} className="text-gray-400 hover:text-red-500 ml-1 flex items-center justify-center">
                         <span className="material-icons text-[16px]">close</span>
                       </button>

@@ -6,33 +6,59 @@ import Header from './components/Header';
 import MatrixInputView from './components/MatrixInputView';
 import EvidenceCreationView from './components/EvidenceCreationView';
 import ConfirmModal from './components/ConfirmModal';
+import ImportModal from './components/ImportModal';
 import ScrollToTopFAB from './components/ScrollToTopFAB';
-
+import Sidebar from './components/Sidebar';
 import { generateId } from './utils/idGenerator';
 import { saveToDB, loadFromDB, clearDB } from './utils/indexedDB';
 import { STORAGE_KEY, TAB_STORAGE_KEY } from './constants';
 
-// デフォルトのマトリクス状態
-const defaultMatrixState = () => [{
+const defaultDataset = () => ({
   id: generateId(),
-  name: '',
-  conditions: [{ id: generateId(), name: '', values: [{ id: generateId(), value: '' }] }],
-  results: [{ id: generateId(), name: '', values: [{ id: generateId(), value: '' }] }],
-  patterns: []
-}];
+  name: 'unnamed',
+  matrices: [{
+    id: generateId(),
+    name: '',
+    conditions: [{ id: generateId(), name: '', values: [{ id: generateId(), value: '' }] }],
+    results: [{ id: generateId(), name: '', values: [{ id: generateId(), value: '' }] }],
+    patterns: []
+  }]
+});
 
 const App = () => {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
+
   // タブ状態の復元
   const [activeTab, setActiveTab] = useState(() => {
     return localStorage.getItem(TAB_STORAGE_KEY) || 'matrix';
   });
 
+  const [showImportModal, setShowImportModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [saveStatus, setSaveStatus] = useState('');
   const isInitialMount = useRef(true);
 
-  // マトリクス状態の復元
-  const [matrices, setMatrices] = useState(defaultMatrixState());
+  // データセット全体の状態
+  const [datasets, setDatasets] = useState([]);
+  const [activeDatasetId, setActiveDatasetId] = useState(null);
+
+  // 現在アクティブなデータセットのショートカット
+  const activeDataset = datasets.find(d => d.id === activeDatasetId);
+  const activeMatrices = activeDataset?.matrices || [];
+  
+  const setActiveMatrices = (updater) => {
+    setDatasets(prevDatasets => 
+      prevDatasets.map(d => {
+        if (d.id === activeDatasetId) {
+          const newMatrices = typeof updater === 'function' ? updater(d.matrices) : updater;
+          return { ...d, matrices: newMatrices };
+        }
+        return d;
+      })
+    );
+  };
+
   const [isLoaded, setIsLoaded] = useState(false);
 
   // 初期データの読み込み (IndexedDB)
@@ -40,20 +66,20 @@ const App = () => {
     const loadData = async () => {
       try {
         const savedData = await loadFromDB();
-        if (savedData) {
-          setMatrices(savedData);
+        if (savedData && savedData.datasets && savedData.datasets.length > 0) {
+          setDatasets(savedData.datasets);
+          setActiveDatasetId(savedData.activeDatasetId);
         } else {
-          // 旧バージョン (localStorage) からのマイグレーション
-          const oldSaved = localStorage.getItem(STORAGE_KEY);
-          if (oldSaved) {
-            const parsed = JSON.parse(oldSaved);
-            setMatrices(parsed);
-            await saveToDB(parsed);
-            localStorage.removeItem(STORAGE_KEY);
-          }
+          // データがない、または古い形式の場合
+          const newDataset = defaultDataset();
+          setDatasets([newDataset]);
+          setActiveDatasetId(newDataset.id);
         }
       } catch (e) {
         console.error("セーブデータの読み込みに失敗しました", e);
+        const newDataset = defaultDataset();
+        setDatasets([newDataset]);
+        setActiveDatasetId(newDataset.id);
       } finally {
         setIsLoaded(true);
       }
@@ -67,59 +93,96 @@ const App = () => {
   }, [activeTab]);
 
   useEffect(() => {
-    if (!isLoaded) return;
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return; // 初回マウント時はセーブを走らせない
+    if (!isLoaded || isInitialMount.current) {
+        if (isLoaded) isInitialMount.current = false;
+        return;
     }
 
-    // 画像の巨大データ（originalDataUrl, dataUrl）を除外して保存
-    const dataToSave = matrices.map(m => ({
-      ...m,
-      patterns: m.patterns.map(p => ({
-        ...p,
-        images: p.images.map(img => ({
-          id: img.id,
-          name: img.name,
-          drawDataUrl: img.drawDataUrl || null
-          // base64画像データは保存しない
-        }))
-      }))
-    }));
+    const timer = setTimeout(() => {
+      const saveData = async () => {
+        // 画像の巨大データ（originalDataUrl, dataUrl）を除外して保存
+        const datasetsToSave = datasets.map(dataset => ({
+          ...dataset,
+          matrices: dataset.matrices.map(m => ({
+            ...m,
+            patterns: m.patterns.map(p => ({
+              ...p,
+              images: p.images.map(img => ({
+                id: img.id,
+                name: img.name,
+                drawDataUrl: img.drawDataUrl || null
+                // base64画像データは保存しない
+              }))
+            }))
+          }))
+        }));
 
-    saveToDB(dataToSave)
-      .then(() => {
-        setSaveStatus('自動保存しました');
-        setTimeout(() => setSaveStatus(''), 2000);
-      })
-      .catch((e) => {
-        console.error("オートセーブエラー", e);
-        setSaveStatus('保存失敗');
-      });
-  }, [matrices, isLoaded]);
+        try {
+          await saveToDB({ datasets: datasetsToSave, activeDatasetId });
+          setSaveStatus('自動保存しました');
+          setTimeout(() => setSaveStatus(''), 2000);
+        } catch (e) {
+          console.error("オートセーブエラー", e);
+          setSaveStatus('保存失敗');
+        }
+      };
+      saveData();
+    }, 500); // 500msのデバウンス
+
+    return () => clearTimeout(timer);
+  }, [datasets, activeDatasetId, isLoaded]);
 
   // マトリクスの追加・更新・削除
   const addMatrix = () => {
-    setMatrices([...matrices, ...defaultMatrixState()]);
+    const newMatrices = [...activeMatrices, {
+      id: generateId(),
+      name: '',
+      conditions: [{ id: generateId(), name: '', values: [{ id: generateId(), value: '' }] }],
+      results: [{ id: generateId(), name: '', values: [{ id: generateId(), value: '' }] }],
+      patterns: []
+    }];
+    setActiveMatrices(newMatrices);
   };
   
   const updateMatrix = (id, field, value) => {
-    setMatrices(matrices.map(m => m.id === id ? { ...m, [field]: value } : m));
+    const newMatrices = activeMatrices.map(m => m.id === id ? { ...m, [field]: value } : m);
+    setActiveMatrices(newMatrices);
   };
   
   const removeMatrix = (id) => {
-    setMatrices(matrices.filter(m => m.id !== id));
+    const newMatrices = activeMatrices.filter(m => m.id !== id);
+    setActiveMatrices(newMatrices);
   };
 
   // 全データクリア処理
   const handleClearAllData = async () => {
-    if (window.confirm("保存されているすべてのデータを削除して初期化しますか？\n（この操作は元に戻せません）")) {
-      await clearDB();
-      localStorage.removeItem(TAB_STORAGE_KEY);
-      setMatrices(defaultMatrixState());
-      setActiveTab('matrix');
+    if (window.confirm("現在開いている証跡のすべてのマトリクスを削除して初期化しますか？\n（この操作は元に戻せません）")) {
+      setActiveMatrices([]);
     }
   };
+
+  const handleCreateNewDataset = () => {
+    const newDataset = defaultDataset();
+    setDatasets([...datasets, newDataset]);
+    setActiveDatasetId(newDataset.id);
+  };
+
+  const handleRenameDataset = (datasetId, oldName) => {
+    const newName = window.prompt("新しい証跡データの名前を入力してください", oldName);
+    if (newName && newName.trim() !== '') {
+      setDatasets(datasets.map(d => d.id === datasetId ? { ...d, name: newName } : d));
+    }
+  };
+
+  const handleDeleteDataset = () => {
+    if (datasets.length <= 1) return;
+    if (window.confirm(`「${activeDataset.name}」を削除しますか？\nこの操作は元に戻せません。`)) {
+      const newDatasets = datasets.filter(d => d.id !== activeDatasetId);
+      setDatasets(newDatasets);
+      setActiveDatasetId(newDatasets[0].id);
+    }
+  };
+
 
   // マトリクスのインポート処理（既存のマトリクスをクリアして置き換え）
   const addImportedMatrices = (importedData) => {
@@ -138,12 +201,12 @@ const App = () => {
       })),
       patterns: []
     }));
-    setMatrices(newMatrices);
+    setActiveMatrices(newMatrices);
   };
 
   // 現在のマトリクス定義をJSONでエクスポートする処理
   const handleExportJson = () => {
-    const exportData = matrices.map(m => ({
+    const exportData = activeMatrices.map(m => ({
       name: m.name,
       conditions: m.conditions.map(c => ({
         name: c.name,
@@ -159,7 +222,7 @@ const App = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = "matrices_template.json";
+    a.download = `matrices_template_${activeDataset.name}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -168,7 +231,7 @@ const App = () => {
 
   // 実際の証跡作成（パターン自動生成処理）
   const executeCreateEvidence = () => {
-    const newMatrices = matrices.map(m => {
+    const newMatrices = activeMatrices.map(m => {
       // 有効な条件項目のみ抽出
       const validConditions = m.conditions.filter(c => c.name.trim() && c.values.some(v => v.value.trim()));
       
@@ -222,14 +285,14 @@ const App = () => {
       return { ...m, patterns: newPatterns };
     });
 
-    setMatrices(newMatrices);
+    setActiveMatrices(newMatrices);
     setActiveTab('evidence');
     window.scrollTo(0, 0);
   };
 
   // 「作成」ボタン押下時の処理（確認モーダルの制御）
   const handleCreateEvidence = () => {
-    const hasData = matrices.some(m => m.patterns && m.patterns.some(p => p.images && p.images.length > 0));
+    const hasData = activeMatrices.some(m => m.patterns && m.patterns.some(p => p.images && p.images.length > 0));
     if (hasData) {
       setShowConfirmModal(true);
     } else {
@@ -241,10 +304,10 @@ const App = () => {
   const handleExport = async () => {
     const zip = new JSZip();
     const assetsFolder = zip.folder("assets");
-    let mdContent = "# テスト証跡\n\n";
+    let mdContent = `# テスト証跡: ${activeDataset.name}\n\n`;
     let hasWarning = false;
 
-    matrices.forEach((m, mIdx) => {
+    activeMatrices.forEach((m, mIdx) => {
       if (m.patterns.length === 0) return;
       mdContent += `## ${m.name || 'マトリクス ' + (mIdx + 1)}\n\n`;
 
@@ -302,7 +365,7 @@ const App = () => {
 
     try {
       const content = await zip.generateAsync({ type: "blob" });
-      saveAs(content, "evidence_export.zip");
+      saveAs(content, `evidence_export_${activeDataset.name}.zip`);
     } catch (e) {
       console.error("出力に失敗しました: " + e.message);
     }
@@ -313,37 +376,49 @@ const App = () => {
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        saveStatus={saveStatus}
         onClearAllData={handleClearAllData}
+        onImportJson={() => setShowImportModal(true)}
         onExportJson={handleExportJson}
         onExport={handleExport}
+        toggleSidebar={toggleSidebar}
+        saveStatus={saveStatus}
       />
-
-      {/* Main Content */}
-      <main className="flex-1 p-6 overflow-auto">
-        <div className="max-w-5xl mx-auto pb-20">
-          {!isLoaded ? (
-            <div className="text-center text-gray-500 mt-20">
-              <span className="material-icons animate-pulse text-4xl text-indigo-400">sync</span>
-              <p className="mt-4 font-bold text-lg">データを読み込んでいます...</p>
-            </div>
-          ) : activeTab === 'matrix' ? (
-            <MatrixInputView 
-              matrices={matrices} 
-              updateMatrix={updateMatrix} 
-              removeMatrix={removeMatrix} 
-              addMatrix={addMatrix}
-              addImportedMatrices={addImportedMatrices}
-              onCreate={handleCreateEvidence}
-            />
-          ) : (
-            <EvidenceCreationView 
-              matrices={matrices} 
-              setMatrices={setMatrices} 
-            />
-          )}
-        </div>
-      </main>
+      <div className="flex flex-1 overflow-hidden relative">
+        <Sidebar
+          isOpen={isSidebarOpen}
+          datasets={datasets}
+          activeDatasetId={activeDatasetId}
+          onSwitchDataset={setActiveDatasetId}
+          onCreateNewDataset={handleCreateNewDataset}
+          onRenameDataset={handleRenameDataset}
+          onDeleteDataset={handleDeleteDataset}
+        />
+        {/* Main Content */}
+        <main className="flex-1 p-6 overflow-y-auto bg-gray-50">
+          <div className="max-w-5xl mx-auto pb-20">
+            {!isLoaded || !activeDataset ? (
+              <div className="text-center text-gray-500 mt-20">
+                <span className="material-icons animate-pulse text-4xl text-indigo-400">sync</span>
+                <p className="mt-4 font-bold text-lg">データを読み込んでいます...</p>
+              </div>
+            ) : activeTab === 'matrix' ? (
+              <MatrixInputView 
+                matrices={activeMatrices}
+                updateMatrix={updateMatrix} 
+                removeMatrix={removeMatrix} 
+                addMatrix={addMatrix}
+                addImportedMatrices={addImportedMatrices}
+                onCreate={handleCreateEvidence}
+              />
+            ) : (
+              <EvidenceCreationView 
+                matrices={activeMatrices} 
+                setMatrices={setActiveMatrices} 
+              />
+            )}
+          </div>
+        </main>
+      </div>
 
       {/* 証跡再作成時の確認モーダル */}
       {showConfirmModal && (
@@ -355,6 +430,17 @@ const App = () => {
 
       {/* 証跡作成プレビュー時のみ表示する上部へ戻るFAB */}
       {activeTab === 'evidence' && <ScrollToTopFAB />}
+
+      {/* マトリクスのインポートモーダル */}
+      {showImportModal && (
+        <ImportModal
+          onClose={() => setShowImportModal(false)}
+          onImport={(data) => {
+            addImportedMatrices(data);
+            setShowImportModal(false);
+          }}
+        />
+      )}
     </div>
   );
 };

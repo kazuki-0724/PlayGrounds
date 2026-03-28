@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Gemini x MCP Demo</title>
+</head>
+<body>
+    <h1>Gemini x MCP (Custom API)</h1>
+    <input type="text" id="prompt" size="50" placeholder="例: 社員E001の部署を教えて" />
+    <button onclick="sendPrompt()">送信</button>
+    <p id="result" style="white-space: pre-wrap; background: #f4f4f4; padding: 10px;"></p>
+
+    <script>
+        async function sendPrompt() {
+            const prompt = document.getElementById('prompt').value;
+            document.getElementById('result').innerText = "考え中...";
+            const res = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt })
+            });
+            const data = await res.json();
+            document.getElementById('result').innerText = data.text || data.error;
+        }
+    </script>
+</body>
+</html>
