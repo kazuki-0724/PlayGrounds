@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html class="light" lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aura Commerce | AI Shopping Assistant</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              primary: '#0058be',
+              'primary-container': '#2170e4',
+              surface: '#f8f9fa',
+              'surface-variant': '#e1e3e4',
+              'on-surface': '#191c1d',
+              'outline-variant': '#c2c6d6'
+            },
+            fontFamily: {
+              headline: ['Inter'],
+              body: ['Inter']
+            }
+          }
+        }
+      };
+    </script>
+  </head>
+  <body class="bg-surface selection:bg-blue-100 selection:text-blue-900">
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
