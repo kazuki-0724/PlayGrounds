@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>差分リスト作成</title>
+  <link rel="stylesheet" href="https://unpkg.com/diff2html/bundles/css/diff2html.min.css">
+  <style>
+    :root{--bg:#f6f8fa;--surface:#fff;--text:#222;--primary:#0969da;--muted:#6e7781;--border:#d0d7de;--danger:#cf222e;--success:#1a7f37}
+    *{box-sizing:border-box}
+    body{margin:0;padding:16px;background:var(--bg);color:var(--text);font:14px/1.5 Segoe UI,system-ui,sans-serif}
+    .layout{display:grid;grid-template-columns:360px minmax(0,1fr);gap:16px}
+    .panel{background:var(--surface);border:1px solid #e6edf3;border-radius:12px;padding:16px}
+    .field{display:grid;gap:6px;margin-bottom:12px}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    input[type="file"]{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font:inherit;background:#fff}
+    .btn{background:var(--primary);color:#fff;border:0;border-radius:8px;padding:10px 14px;cursor:pointer;font:inherit}
+    .btn.secondary{background:#6e7781}
+    .status{font-size:13px;color:var(--muted);min-height:20px}
+    .status.error{color:var(--danger)}
+    .status.success{color:var(--success)}
+    .hint{margin:0;color:var(--muted)}
+    #preview{background:#fff;border:1px solid #e6edf3;border-radius:12px;padding:12px;overflow:auto;min-height:640px}
+    #preview .d2h-wrapper{min-width:960px}
+    .file-toggle{position:absolute;top:7px;right:10px;z-index:2;background:#eef3f8;color:#24292e;border:1px solid #d0d7de;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
+    .d2h-file-header{position:relative;display:flex;align-items:center;gap:8px;padding-right:92px}
+    .d2h-file-wrapper.is-collapsed .d2h-file-diff,.d2h-file-wrapper.is-collapsed .d2h-files-diff{display:none}
+    .result{border:1px solid #b6e3b6;background:#edf9ed;border-radius:8px;padding:10px;display:none}
+    @media (max-width:1100px){.layout{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <section class="panel">
+      <div class="field">
+        <label for="fileInput">diff ファイル</label>
+        <input id="fileInput" type="file" accept=".diff,.patch,text/*">
+      </div>
+
+      <p class="hint">アップロードした diff は hunk 単位で差分リストへ展開されます。案件と確認者は差分リスト上でプルダウン選択します。</p>
+
+      <div class="row" style="margin-top:12px;">
+        <button id="createBtn" class="btn" type="button">差分リスト作成</button>
+        <button id="clearBtn" class="btn secondary" type="button">クリア</button>
+      </div>
+
+      <p id="statusText" class="status">差分ファイルを選択してください。</p>
+      <div id="resultBox" class="result">
+        <div id="resultMessage"></div>
+      </div>
+    </section>
+
+    <section id="preview"></section>
+  </div>
+
+  <script src="https://unpkg.com/diff2html/bundles/js/diff2html.min.js"></script>
+  <script>
+    var state = {
+      diffFileName: '',
+      diffText: ''
+    };
+
+    var fileInput = document.getElementById('fileInput');
+    var preview = document.getElementById('preview');
+    var statusText = document.getElementById('statusText');
+    var resultBox = document.getElementById('resultBox');
+    var resultMessage = document.getElementById('resultMessage');
+    var createBtn = document.getElementById('createBtn');
+
+    function setStatus(message, kind) {
+      statusText.textContent = message;
+      statusText.className = kind ? 'status ' + kind : 'status';
+    }
+
+    function attachFileToggles() {
+      preview.querySelectorAll('.d2h-file-wrapper').forEach(function(fileWrapper) {
+        var header = fileWrapper.querySelector('.d2h-file-header');
+        var fileDiff = fileWrapper.querySelector('.d2h-file-diff, .d2h-files-diff');
+        if (!header || !fileDiff || header.querySelector('.file-toggle')) {
+          return;
+        }
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'file-toggle';
+        button.textContent = '折りたたむ';
+        button.addEventListener('click', function() {
+          var collapsed = fileWrapper.classList.toggle('is-collapsed');
+          button.textContent = collapsed ? '展開' : '折りたたむ';
+          button.setAttribute('aria-expanded', String(!collapsed));
+        });
+        button.setAttribute('aria-expanded', 'true');
+        header.appendChild(button);
+      });
+    }
+
+    function renderPreview() {
+      if (!state.diffText) {
+        preview.innerHTML = '<div class="panel">プレビューはここに表示されます。</div>';
+        return false;
+      }
+
+      try {
+        preview.innerHTML = Diff2Html.html(state.diffText, {
+          drawFileList: true,
+          fileListToggle: true,
+          matching: 'lines',
+          outputFormat: 'side-by-side'
+        });
+        attachFileToggles();
+        return true;
+      } catch (error) {
+        preview.innerHTML = '<div class="panel">表示エラー: ' + escapeHtml(error.message || String(error)) + '</div>';
+        setStatus(error.message || String(error), 'error');
+        return false;
+      }
+    }
+
+    function createDiffList() {
+      if (!state.diffText) {
+        setStatus('差分ファイルをアップロードしてください。', 'error');
+        return;
+      }
+      if (!renderPreview()) {
+        return;
+      }
+
+      createBtn.disabled = true;
+      setStatus('差分リストを作成中...', '');
+      google.script.run
+        .withSuccessHandler(function(result) {
+          createBtn.disabled = false;
+          resultBox.style.display = 'block';
+          resultMessage.textContent = '差分リストを作成しました。差分単位数: ' + result.totalUnits + ' / 対象ファイル数: ' + result.totalFiles;
+          setStatus('差分リストを更新しました。案件と確認者はシート上のプルダウンから選択してください。', 'success');
+        })
+        .withFailureHandler(function(error) {
+          createBtn.disabled = false;
+          setStatus(error.message || String(error), 'error');
+        })
+        .createDiffListInCurrentSpreadsheet({
+          fileName: state.diffFileName || 'uploaded.diff',
+          diffText: state.diffText
+        });
+    }
+
+    function clearAll() {
+      state.diffFileName = '';
+      state.diffText = '';
+      fileInput.value = '';
+      preview.innerHTML = '';
+      resultBox.style.display = 'none';
+      setStatus('クリアしました。', '');
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    fileInput.addEventListener('change', function() {
+      var file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        return;
+      }
+      state.diffFileName = file.name;
+      var reader = new FileReader();
+      reader.onload = function() {
+        state.diffText = String(reader.result || '');
+        renderPreview();
+        setStatus('差分ファイルを読み込みました。', 'success');
+      };
+      reader.onerror = function() {
+        setStatus('ファイル読み込みに失敗しました。', 'error');
+      };
+      reader.readAsText(file);
+    });
+
+    document.getElementById('createBtn').addEventListener('click', createDiffList);
+    document.getElementById('clearBtn').addEventListener('click', clearAll);
+    renderPreview();
+  </script>
+</body>
+</html>

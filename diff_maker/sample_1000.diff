@@ -1,0 +1,1052 @@
+diff --git a/src/app.js b/src/app.js
+index 0111111..0222222 100644
+--- a/src/app.js
++++ b/src/app.js
+@@ -1,57 +1,73 @@
+-import { createRouter } from './router';
+-import { renderDashboard } from './dashboard';
+-import { createStore } from './store';
+-import { createApiClient } from './api';
+-
+-const root = document.getElementById('app');
+-const store = createStore();
+-const api = createApiClient('/api');
+-
+-function setStatus(message) {
+-  const status = document.getElementById('status');
+-  if (status) {
+-    status.textContent = message;
+-  }
+-}
+-
+-async function loadSummary() {
+-  setStatus('Loading summary');
+-  const summary = await api.get('/summary');
+-  store.set('summary', summary);
+-  setStatus('Summary loaded');
+-}
+-
+-function renderPage(route) {
+-  if (!root) {
+-    return;
+-  }
+-
+-  root.innerHTML = '';
+-
+-  if (route.name === 'dashboard') {
+-    root.appendChild(renderDashboard(store));
+-    return;
+-  }
+-
+-  const empty = document.createElement('section');
+-  empty.className = 'empty-state';
+-  empty.textContent = 'No route selected';
+-  root.appendChild(empty);
+-}
+-
+-function bootstrap() {
+-  const router = createRouter();
+-  router.onChange((route) => {
+-    store.set('lastRoute', route.name);
+-    renderPage(route);
+-  });
+-
+-  loadSummary().catch((error) => {
+-    console.error(error);
+-    setStatus('Failed to load summary');
+-  });
+-
+-  router.start();
+-}
+-
+-bootstrap();
++import { createRouter } from './router';
++import { renderDashboard } from './dashboard';
++import { renderSettings } from './settings';
++import { createStore } from './store';
++import { createApiClient } from './api';
++
++const root = document.getElementById('app');
++const store = createStore({
++  theme: 'light',
++  notifications: [],
++  summary: null
++});
++const api = createApiClient('/api');
++
++function setStatus(message, type = 'info') {
++  const status = document.getElementById('status');
++  if (status) {
++    status.dataset.type = type;
++    status.textContent = message;
++  }
++}
++
++async function loadSummary() {
++  setStatus('Loading summary');
++  const [summary, notifications] = await Promise.all([
++    api.get('/summary'),
++    api.get('/notifications')
++  ]);
++  store.set('summary', summary);
++  store.set('notifications', notifications);
++  setStatus('Summary loaded');
++}
++
++function renderPage(route) {
++  if (!root) {
++    return;
++  }
++
++  root.innerHTML = '';
++
++  switch (route.name) {
++    case 'dashboard':
++      root.appendChild(renderDashboard(store));
++      break;
++    case 'settings':
++      root.appendChild(renderSettings(store));
++      break;
++    default: {
++      const empty = document.createElement('section');
++      empty.className = 'empty-state';
++      empty.textContent = 'Select a page from the navigation';
++      root.appendChild(empty);
++    }
++  }
++}
++
++function bootstrap() {
++  const router = createRouter();
++  router.onChange((route) => {
++    store.set('lastRoute', route.name);
++    store.set('lastVisitedAt', new Date().toISOString());
++    renderPage(route);
++  });
++
++  loadSummary().catch((error) => {
++    console.error(error);
++    setStatus('Failed to load summary', 'error');
++  });
++
++  router.start();
++}
++
++bootstrap();
+diff --git a/src/utils/date.ts b/src/utils/date.ts
+index 0111172..02222a5 100644
+--- a/src/utils/date.ts
++++ b/src/utils/date.ts
+@@ -1,41 +1,54 @@
+-const DAY_MS = 1000 * 60 * 60 * 24;
+-
+-export function parseDate(value: string): Date | null {
+-  const parsed = new Date(value);
+-
+-  if (Number.isNaN(parsed.getTime())) {
+-    return null;
+-  }
+-
+-  return parsed;
+-}
+-
+-export function formatDate(value: Date): string {
+-  const year = value.getFullYear();
+-  const month = String(value.getMonth() + 1).padStart(2, '0');
+-  const day = String(value.getDate()).padStart(2, '0');
+-  return `${year}-${month}-${day}`;
+-}
+-
+-export function formatDateTime(value: Date): string {
+-  const hours = String(value.getHours()).padStart(2, '0');
+-  const minutes = String(value.getMinutes()).padStart(2, '0');
+-  return `${formatDate(value)} ${hours}:${minutes}`;
+-}
+-
+-export function startOfDay(value: Date): Date {
+-  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+-}
+-
+-export function endOfDay(value: Date): Date {
+-  return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 23, 59, 59, 999);
+-}
+-
+-export function daysBetween(a: Date, b: Date): number {
+-  const diff = Math.abs(startOfDay(a).getTime() - startOfDay(b).getTime());
+-  return Math.floor(diff / DAY_MS);
+-}
+-
+-export function isWeekend(value: Date): boolean {
+-  return value.getDay() === 0 || value.getDay() === 6;
+-}
++const DAY_MS = 1000 * 60 * 60 * 24;
++const TOKYO_OFFSET_MINUTES = 9 * 60;
++
++export function parseDate(value: string): Date | null {
++  const parsed = new Date(value);
++
++  if (Number.isNaN(parsed.getTime())) {
++    return null;
++  }
++
++  return parsed;
++}
++
++export function formatDate(value: Date): string {
++  const year = value.getFullYear();
++  const month = String(value.getMonth() + 1).padStart(2, '0');
++  const day = String(value.getDate()).padStart(2, '0');
++  return `${year}-${month}-${day}`;
++}
++
++export function formatDateTime(value: Date, includeSeconds = false): string {
++  const hours = String(value.getHours()).padStart(2, '0');
++  const minutes = String(value.getMinutes()).padStart(2, '0');
++  const seconds = String(value.getSeconds()).padStart(2, '0');
++  const time = includeSeconds ? `${hours}:${minutes}:${seconds}` : `${hours}:${minutes}`;
++  return `${formatDate(value)} ${time}`;
++}
++
++export function toTokyoTime(value: Date): Date {
++  const utcMinutes = value.getTimezoneOffset();
++  const delta = TOKYO_OFFSET_MINUTES + utcMinutes;
++  return new Date(value.getTime() + delta * 60 * 1000);
++}
++
++export function startOfDay(value: Date): Date {
++  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
++}
++
++export function endOfDay(value: Date): Date {
++  return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 23, 59, 59, 999);
++}
++
++export function daysBetween(a: Date, b: Date): number {
++  const diff = Math.abs(startOfDay(a).getTime() - startOfDay(b).getTime());
++  return Math.floor(diff / DAY_MS);
++}
++
++export function isWeekend(value: Date): boolean {
++  return value.getDay() === 0 || value.getDay() === 6;
++}
++
++export function isBusinessDay(value: Date): boolean {
++  return !isWeekend(value);
++}
+diff --git a/src/components/Header.jsx b/src/components/Header.jsx
+index 01111d3..0222328 100644
+--- a/src/components/Header.jsx
++++ b/src/components/Header.jsx
+@@ -1,26 +1,41 @@
+-import './Header.css';
+-
+-function HeaderActions({ onRefresh, onExport }) {
+-  return (
+-    <div className="header-actions">
+-      <button type="button" className="header-action" onClick={onRefresh}>
+-        Refresh
+-      </button>
+-      <button type="button" className="header-action secondary" onClick={onExport}>
+-        Export
+-      </button>
+-    </div>
+-  );
+-}
+-
+-export function Header({ title, subtitle, onRefresh, onExport }) {
+-  return (
+-    <header className="page-header">
+-      <div>
+-        <h1>{title}</h1>
+-        <p>{subtitle}</p>
+-      </div>
+-      <HeaderActions onRefresh={onRefresh} onExport={onExport} />
+-    </header>
+-  );
+-}
++import './Header.css';
++
++function StatusBadge({ online }) {
++  return (
++    <span className={online ? 'status-badge online' : 'status-badge offline'}>
++      {online ? 'Online' : 'Offline'}
++    </span>
++  );
++}
++
++function HeaderActions({ actions }) {
++  return (
++    <div className="header-actions">
++      {actions.map((action) => (
++        <button
++          key={action.key}
++          type="button"
++          className={action.variant === 'secondary' ? 'header-action secondary' : 'header-action'}
++          onClick={action.onClick}
++        >
++          {action.label}
++        </button>
++      ))}
++    </div>
++  );
++}
++
++export function Header({ title, subtitle, online, actions = [] }) {
++  return (
++    <header className="page-header">
++      <div className="page-header-copy">
++        <div className="page-header-row">
++          <h1>{title}</h1>
++          <StatusBadge online={online} />
++        </div>
++        <p>{subtitle}</p>
++      </div>
++      <HeaderActions actions={actions} />
++    </header>
++  );
++}
+diff --git a/src/styles/theme.css b/src/styles/theme.css
+index 0111234..02223ab 100644
+--- a/src/styles/theme.css
++++ b/src/styles/theme.css
+@@ -1,42 +1,54 @@
+-:root {
+-  --color-background: #f4f5f7;
+-  --color-surface: #ffffff;
+-  --color-text: #22303c;
+-  --color-primary: #2f6fed;
+-  --color-primary-strong: #194bb5;
+-  --color-muted: #5b6b7a;
+-  --space-xs: 4px;
+-  --space-sm: 8px;
+-  --space-md: 16px;
+-  --space-lg: 24px;
+-  --radius-md: 12px;
+-}
+-
+-body {
+-  margin: 0;
+-  color: var(--color-text);
+-  background: var(--color-background);
+-  font-family: 'Segoe UI', sans-serif;
+-}
+-
+-.page-header {
+-  display: flex;
+-  align-items: center;
+-  justify-content: space-between;
+-  padding: var(--space-lg);
+-}
+-
+-.card {
+-  padding: var(--space-md);
+-  background: var(--color-surface);
+-  border-radius: var(--radius-md);
+-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+-}
+-
+-.header-action {
+-  background: var(--color-primary);
+-  color: white;
+-  border: 0;
+-  border-radius: 999px;
+-  padding: var(--space-sm) var(--space-md);
+-}
++:root {
++  --color-background: #f7f4ee;
++  --color-surface: #fffdf8;
++  --color-surface-strong: #f2e7d5;
++  --color-text: #2f241f;
++  --color-primary: #8c4f2b;
++  --color-primary-strong: #6e3e20;
++  --color-muted: #6d5b4d;
++  --color-border: rgba(79, 51, 30, 0.12);
++  --space-xs: 4px;
++  --space-sm: 8px;
++  --space-md: 16px;
++  --space-lg: 24px;
++  --radius-md: 16px;
++}
++
++body {
++  margin: 0;
++  color: var(--color-text);
++  background:
++    radial-gradient(circle at top left, rgba(255, 240, 214, 0.7), transparent 30%),
++    linear-gradient(180deg, #fbf8f2 0%, #f3ede2 100%);
++  font-family: 'Segoe UI', sans-serif;
++}
++
++.page-header {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: var(--space-md);
++  padding: var(--space-lg);
++}
++
++.card {
++  padding: var(--space-md);
++  background: var(--color-surface);
++  border: 1px solid var(--color-border);
++  border-radius: var(--radius-md);
++  box-shadow: 0 12px 30px rgba(89, 52, 22, 0.08);
++}
++
++.header-action {
++  background: var(--color-primary);
++  color: white;
++  border: 0;
++  border-radius: 999px;
++  padding: var(--space-sm) var(--space-md);
++}
++
++.status-badge {
++  background: var(--color-surface-strong);
++  border-radius: 999px;
++  padding: 2px 10px;
++}
+diff --git a/public/index.html b/public/index.html
+index 0111295..022242e 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -1,14 +1,17 @@
+-<!doctype html>
+-<html lang="en">
+-  <head>
+-    <meta charset="UTF-8" />
+-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+-    <title>Admin Console</title>
+-    <link rel="icon" href="/favicon.ico" />
+-  </head>
+-  <body>
+-    <div id="status" aria-live="polite"></div>
+-    <div id="app"></div>
+-    <script type="module" src="/src/app.js"></script>
+-  </body>
+-</html>
++<!doctype html>
++<html lang="ja">
++  <head>
++    <meta charset="UTF-8" />
++    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++    <meta name="theme-color" content="#8c4f2b" />
++    <meta name="description" content="Operations dashboard for support teams" />
++    <title>Operations Console</title>
++    <link rel="icon" href="/favicon.ico" />
++  </head>
++  <body>
++    <noscript>This application requires JavaScript to render the dashboard.</noscript>
++    <div id="status" aria-live="polite"></div>
++    <div id="app"></div>
++    <script type="module" src="/src/app.js"></script>
++  </body>
++</html>
+diff --git a/config/app.json b/config/app.json
+index 01112f6..02224b1 100644
+--- a/config/app.json
++++ b/config/app.json
+@@ -1,19 +1,26 @@
+-{
+-  "appName": "admin-console",
+-  "apiBaseUrl": "https://api.example.local",
+-  "environment": "staging",
+-  "features": {
+-    "enableAuditLog": false,
+-    "enableNotifications": false,
+-    "enableDarkMode": true,
+-    "enableExports": true
+-  },
+-  "retry": {
+-    "count": 2,
+-    "delayMs": 500
+-  },
+-  "security": {
+-    "csrf": true,
+-    "sessionTimeoutMinutes": 30
+-  }
+-}
++{
++  "appName": "operations-console",
++  "apiBaseUrl": "https://api.example.internal",
++  "environment": "production",
++  "features": {
++    "enableAuditLog": true,
++    "enableNotifications": true,
++    "enableDarkMode": false,
++    "enableExports": true,
++    "enableBulkActions": true
++  },
++  "retry": {
++    "count": 4,
++    "delayMs": 800,
++    "backoff": "exponential"
++  },
++  "security": {
++    "csrf": true,
++    "sessionTimeoutMinutes": 20,
++    "requireMfa": true
++  },
++  "telemetry": {
++    "provider": "app-insights",
++    "sampleRate": 0.25
++  }
++}
+diff --git a/docs/release-notes.md b/docs/release-notes.md
+index 0111357..0222534 100644
+--- a/docs/release-notes.md
++++ b/docs/release-notes.md
+@@ -1,16 +1,20 @@
+-# Release Notes
+-
+-## 1.4.0
+-
+-- Added dashboard route.
+-- Updated fallback empty state.
+-- Fixed issue where router did not start on first load.
+-- Enabled export button for CSV download.
+-- Improved API timeout handling.
+-- Adjusted layout spacing on narrow screens.
+-
+-## 1.3.2
+-
+-- Improved API timeout handling.
+-- Adjusted layout spacing on narrow screens.
+-- Updated dashboard empty state copy.
++# Release Notes
++
++## 1.5.0
++
++- Added settings route with persistent last-visited timestamp.
++- Introduced Tokyo time conversion utilities for report exports.
++- Refreshed dashboard color system and card styling.
++- Added telemetry configuration and bulk action feature flag.
++- Expanded login e2e coverage with validation and retry flows.
++- Added inactive user filtering and payload validation on the API.
++- Added release-based deployment script for atomic publish.
++
++## 1.4.0
++
++- Added dashboard route.
++- Updated fallback empty state.
++- Fixed issue where router did not start on first load.
++- Enabled export button for CSV download.
++- Improved API timeout handling.
++- Adjusted layout spacing on narrow screens.
+diff --git a/scripts/deploy.sh b/scripts/deploy.sh
+index 01113b8..02225b7 100644
+--- a/scripts/deploy.sh
++++ b/scripts/deploy.sh
+@@ -1,13 +1,19 @@
+-#!/usr/bin/env bash
+-set -euo pipefail
+-
+-APP_NAME="admin-console"
+-BUILD_DIR="dist"
+-TARGET_HOST="deploy@example.local"
+-SERVICE_NAME="nginx"
+-
+-npm run build
+-rsync -av --delete "$BUILD_DIR/" "$TARGET_HOST:/var/www/$APP_NAME/"
+-ssh "$TARGET_HOST" "sudo systemctl reload $SERVICE_NAME"
+-
+-echo "Deployment completed"
++#!/usr/bin/env bash
++set -euo pipefail
++
++APP_NAME="operations-console"
++BUILD_DIR="dist"
++TARGET_HOST="deploy@example.internal"
++SERVICE_NAME="nginx"
++RELEASE_DIR="/var/www/$APP_NAME/releases"
++STAMP="$(date +%Y%m%d%H%M%S)"
++CURRENT_LINK="/var/www/$APP_NAME/current"
++
++npm ci
++npm run build
++ssh "$TARGET_HOST" "mkdir -p '$RELEASE_DIR/$STAMP'"
++rsync -av --delete "$BUILD_DIR/" "$TARGET_HOST:$RELEASE_DIR/$STAMP/"
++ssh "$TARGET_HOST" "ln -sfn '$RELEASE_DIR/$STAMP' '$CURRENT_LINK'"
++ssh "$TARGET_HOST" "sudo systemctl reload $SERVICE_NAME"
++
++echo "Deployment completed: $STAMP"
+diff --git a/server/api/user.py b/server/api/user.py
+index 0111419..022263a 100644
+--- a/server/api/user.py
++++ b/server/api/user.py
+@@ -1,35 +1,58 @@
+-from flask import Blueprint, jsonify, request
+-
+-bp = Blueprint("users", __name__)
+-
+-_USERS = [
+-    {"id": 1, "name": "Mika", "role": "admin"},
+-    {"id": 2, "name": "Ren", "role": "viewer"},
+-    {"id": 3, "name": "Sara", "role": "editor"},
+-]
+-
+-
+-@bp.get("/users")
+-def list_users():
+-    return jsonify(_USERS)
+-
+-
+-@bp.get("/users/<int:user_id>")
+-def get_user(user_id):
+-    user = next((item for item in _USERS if item["id"] == user_id), None)
+-    if user is None:
+-        return jsonify({"error": "not found"}), 404
+-    return jsonify(user)
+-
+-
+-@bp.post("/users")
+-def create_user():
+-    payload = request.get_json() or {}
+-    next_id = max(user["id"] for user in _USERS) + 1
+-    user = {
+-        "id": next_id,
+-        "name": payload.get("name", "unknown"),
+-        "role": payload.get("role", "viewer"),
+-    }
+-    _USERS.append(user)
+-    return jsonify(user), 201
++from flask import Blueprint, jsonify, request
++
++bp = Blueprint("users", __name__)
++
++_USERS = [
++    {"id": 1, "name": "Mika", "role": "admin", "active": True},
++    {"id": 2, "name": "Ren", "role": "viewer", "active": True},
++    {"id": 3, "name": "Sara", "role": "editor", "active": False},
++]
++
++_ALLOWED_ROLES = {"admin", "editor", "viewer"}
++
++
++def _validate_payload(payload):
++    name = (payload.get("name") or "").strip()
++    role = payload.get("role") or "viewer"
++
++    if not name:
++        return "name is required"
++
++    if role not in _ALLOWED_ROLES:
++        return "role is invalid"
++
++    return None
++
++
++@bp.get("/users")
++def list_users():
++    include_inactive = request.args.get("include_inactive") == "true"
++    if include_inactive:
++        return jsonify(_USERS)
++    return jsonify([user for user in _USERS if user["active"]])
++
++
++@bp.get("/users/<int:user_id>")
++def get_user(user_id):
++    user = next((item for item in _USERS if item["id"] == user_id), None)
++    if user is None:
++        return jsonify({"error": "not found"}), 404
++    return jsonify(user)
++
++
++@bp.post("/users")
++def create_user():
++    payload = request.get_json() or {}
++    error = _validate_payload(payload)
++    if error:
++        return jsonify({"error": error}), 400
++
++    next_id = max(user["id"] for user in _USERS) + 1
++    user = {
++        "id": next_id,
++        "name": payload["name"].strip(),
++        "role": payload.get("role", "viewer"),
++        "active": payload.get("active", True),
++    }
++    _USERS.append(user)
++    return jsonify(user), 201
+diff --git a/backend/service/OrderService.java b/backend/service/OrderService.java
+index 011147a..02226bd 100644
+--- a/backend/service/OrderService.java
++++ b/backend/service/OrderService.java
+@@ -1,29 +1,41 @@
+-package service;
+-
+-import java.util.List;
+-
+-public class OrderService {
+-    private final OrderRepository repository;
+-
+-    public OrderService(OrderRepository repository) {
+-        this.repository = repository;
+-    }
+-
+-    public List<Order> listOpenOrders() {
+-        return repository.findByStatus("OPEN");
+-    }
+-
+-    public Order createOrder(OrderRequest request) {
+-        Order order = new Order();
+-        order.setCustomerName(request.customerName());
+-        order.setTotalAmount(request.totalAmount());
+-        order.setStatus("OPEN");
+-        return repository.save(order);
+-    }
+-
+-    public void closeOrder(long orderId) {
+-        Order order = repository.findById(orderId);
+-        order.setStatus("CLOSED");
+-        repository.save(order);
+-    }
+-}
++package service;
++
++import java.time.Clock;
++import java.time.Instant;
++import java.util.List;
++
++public class OrderService {
++    private final OrderRepository repository;
++    private final Clock clock;
++
++    public OrderService(OrderRepository repository, Clock clock) {
++        this.repository = repository;
++        this.clock = clock;
++    }
++
++    public List<Order> listOpenOrders() {
++        return repository.findByStatus("OPEN");
++    }
++
++    public List<Order> listStaleOrders() {
++        Instant cutoff = Instant.now(clock).minusSeconds(60L * 60L * 24L);
++        return repository.findOpenOrdersBefore(cutoff);
++    }
++
++    public Order createOrder(OrderRequest request) {
++        Order order = new Order();
++        order.setCustomerName(request.customerName());
++        order.setTotalAmount(request.totalAmount());
++        order.setStatus("OPEN");
++        order.setCreatedAt(Instant.now(clock));
++        return repository.save(order);
++    }
++
++    public void closeOrder(long orderId, String closedBy) {
++        Order order = repository.findById(orderId);
++        order.setStatus("CLOSED");
++        order.setClosedBy(closedBy);
++        order.setClosedAt(Instant.now(clock));
++        repository.save(order);
++    }
++}
+diff --git a/worker/jobs/report.go b/worker/jobs/report.go
+index 01114db..0222740 100644
+--- a/worker/jobs/report.go
++++ b/worker/jobs/report.go
+@@ -1,19 +1,37 @@
+-package jobs
+-
+-import (
+-    "context"
+-    "log"
+-    "time"
+-)
+-
+-type ReportJob struct {
+-    Name string
+-}
+-
+-func (job ReportJob) Run(ctx context.Context) error {
+-    startedAt := time.Now()
+-    log.Printf("job=%s started=%s", job.Name, startedAt.Format(time.RFC3339))
+-    <-time.After(2 * time.Second)
+-    log.Printf("job=%s completed", job.Name)
+-    return nil
+-}
++package jobs
++
++import (
++    "context"
++    "log"
++    "time"
++)
++
++type ReportWriter interface {
++    Write(ctx context.Context, startedAt time.Time) error
++}
++
++type ReportJob struct {
++    Name        string
++    Writer      ReportWriter
++    MaxDuration time.Duration
++}
++
++func (job ReportJob) Run(ctx context.Context) error {
++    startedAt := time.Now()
++    log.Printf("job=%s started=%s", job.Name, startedAt.Format(time.RFC3339))
++
++    jobCtx := ctx
++    if job.MaxDuration > 0 {
++        var cancel context.CancelFunc
++        jobCtx, cancel = context.WithTimeout(ctx, job.MaxDuration)
++        defer cancel()
++    }
++
++    if err := job.Writer.Write(jobCtx, startedAt); err != nil {
++        log.Printf("job=%s failed=%v", job.Name, err)
++        return err
++    }
++
++    log.Printf("job=%s completed duration=%s", job.Name, time.Since(startedAt))
++    return nil
++}
+diff --git a/database/migrations/001_add_status.sql b/database/migrations/001_add_status.sql
+index 011153c..02227c3 100644
+--- a/database/migrations/001_add_status.sql
++++ b/database/migrations/001_add_status.sql
+@@ -1,18 +1,24 @@
+-BEGIN;
+-
+-CREATE TABLE orders (
+-    id BIGINT PRIMARY KEY,
+-    customer_name VARCHAR(255) NOT NULL,
+-    total_amount NUMERIC(12, 2) NOT NULL,
+-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+-);
+-
+-CREATE TABLE order_items (
+-    id BIGINT PRIMARY KEY,
+-    order_id BIGINT NOT NULL,
+-    sku VARCHAR(64) NOT NULL,
+-    quantity INTEGER NOT NULL,
+-    price NUMERIC(12, 2) NOT NULL
+-);
+-
+-COMMIT;
++BEGIN;
++
++CREATE TABLE orders (
++    id BIGINT PRIMARY KEY,
++    customer_name VARCHAR(255) NOT NULL,
++    total_amount NUMERIC(12, 2) NOT NULL,
++    status VARCHAR(32) NOT NULL DEFAULT 'OPEN',
++    closed_by VARCHAR(255),
++    closed_at TIMESTAMP,
++    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
++);
++
++CREATE TABLE order_items (
++    id BIGINT PRIMARY KEY,
++    order_id BIGINT NOT NULL,
++    sku VARCHAR(64) NOT NULL,
++    quantity INTEGER NOT NULL,
++    price NUMERIC(12, 2) NOT NULL
++);
++
++CREATE INDEX idx_orders_status_created_at
++    ON orders (status, created_at DESC);
++
++COMMIT;
+diff --git a/infra/pipeline/build.yml b/infra/pipeline/build.yml
+index 011159d..0222846 100644
+--- a/infra/pipeline/build.yml
++++ b/infra/pipeline/build.yml
+@@ -1,27 +1,37 @@
+-name: build
+-
+-on:
+-  push:
+-    branches:
+-      - main
+-
+-jobs:
+-  web:
+-    runs-on: ubuntu-latest
+-    steps:
+-      - uses: actions/checkout@v4
+-      - uses: actions/setup-node@v4
+-        with:
+-          node-version: 20
+-      - run: npm ci
+-      - run: npm run build
+-
+-  api:
+-    runs-on: ubuntu-latest
+-    steps:
+-      - uses: actions/checkout@v4
+-      - uses: actions/setup-python@v5
+-        with:
+-          python-version: '3.11'
+-      - run: pip install -r requirements.txt
+-      - run: pytest -q
++name: build
++
++on:
++  push:
++    branches:
++      - main
++  pull_request:
++
++jobs:
++  web:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-node@v4
++        with:
++          node-version: 20
++          cache: npm
++      - run: npm ci
++      - run: npm run lint
++      - run: npm run test -- --run
++      - run: npm run build
++
++  api:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: '3.12'
++      - run: pip install -r requirements.txt
++      - run: pytest
++
++  deploy-preview:
++    if: github.event_name == 'pull_request'
++    runs-on: ubuntu-latest
++    steps:
++      - run: echo 'Preview deployment disabled for forks'
+diff --git a/desktop/src/main.rs b/desktop/src/main.rs
+index 01115fe..02228c9 100644
+--- a/desktop/src/main.rs
++++ b/desktop/src/main.rs
+@@ -1,28 +1,42 @@
+-use std::sync::Mutex;
+-
+-struct AppState {
+-    counter: Mutex<u32>,
+-    window_title: Mutex<String>,
+-}
+-
+-fn increment(state: tauri::State<AppState>) -> u32 {
+-    let mut counter = state.counter.lock().unwrap();
+-    *counter += 1;
+-    *counter
+-}
+-
+-fn update_title(state: tauri::State<AppState>, title: String) {
+-    let mut current = state.window_title.lock().unwrap();
+-    *current = title;
+-}
+-
+-fn main() {
+-    tauri::Builder::default()
+-        .manage(AppState {
+-            counter: Mutex::new(0),
+-            window_title: Mutex::new(String::from("Dashboard")),
+-        })
+-        .invoke_handler(tauri::generate_handler![increment, update_title])
+-        .run(tauri::generate_context!())
+-        .expect("error while running app");
+-}
++use std::sync::Mutex;
++
++#[derive(Default)]
++struct SessionState {
++    counter: u32,
++    last_user: Option<String>,
++    window_title: String,
++}
++
++struct AppState {
++    session: Mutex<SessionState>,
++}
++
++fn increment(state: tauri::State<AppState>, user: String) -> u32 {
++    let mut session = state.session.lock().unwrap();
++    session.counter += 1;
++    session.last_user = Some(user);
++    session.counter
++}
++
++fn update_title(state: tauri::State<AppState>, title: String) {
++    let mut session = state.session.lock().unwrap();
++    session.window_title = title;
++}
++
++fn current_user(state: tauri::State<AppState>) -> String {
++    let session = state.session.lock().unwrap();
++    session.last_user.clone().unwrap_or_else(|| "guest".into())
++}
++
++fn main() {
++    tauri::Builder::default()
++        .manage(AppState {
++            session: Mutex::new(SessionState {
++                window_title: String::from("Operations Console"),
++                ..SessionState::default()
++            }),
++        })
++        .invoke_handler(tauri::generate_handler![increment, update_title, current_user])
++        .run(tauri::generate_context!())
++        .expect("error while running app");
++}
+diff --git a/tests/e2e/login.spec.ts b/tests/e2e/login.spec.ts
+index 011165f..022294c 100644
+--- a/tests/e2e/login.spec.ts
++++ b/tests/e2e/login.spec.ts
+@@ -1,20 +1,30 @@
+-import { expect, test } from '@playwright/test';
+-
+-test('user can log in', async ({ page }) => {
+-  await page.goto('/login');
+-  await page.getByLabel('Email').fill('demo@example.com');
+-  await page.getByLabel('Password').fill('password');
+-  await page.getByRole('button', { name: 'Log in' }).click();
+-
+-  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+-  await expect(page.getByText('demo@example.com')).toBeVisible();
+-});
+-
+-test('login error is shown', async ({ page }) => {
+-  await page.goto('/login');
+-  await page.getByLabel('Email').fill('demo@example.com');
+-  await page.getByLabel('Password').fill('wrong-password');
+-  await page.getByRole('button', { name: 'Log in' }).click();
+-
+-  await expect(page.getByText('Invalid credentials')).toBeVisible();
+-});
++import { expect, test } from '@playwright/test';
++
++test.describe('login', () => {
++  test('user can log in', async ({ page }) => {
++    await page.goto('/login');
++    await page.getByLabel('Email').fill('demo@example.com');
++    await page.getByLabel('Password').fill('password');
++    await page.getByRole('button', { name: 'Log in' }).click();
++
++    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
++    await expect(page.getByText('Signed in as demo@example.com')).toBeVisible();
++  });
++
++  test('validation message is shown for empty password', async ({ page }) => {
++    await page.goto('/login');
++    await page.getByLabel('Email').fill('demo@example.com');
++    await page.getByRole('button', { name: 'Log in' }).click();
++
++    await expect(page.getByText('Password is required')).toBeVisible();
++  });
++
++  test('login error is shown', async ({ page }) => {
++    await page.goto('/login');
++    await page.getByLabel('Email').fill('demo@example.com');
++    await page.getByLabel('Password').fill('wrong-password');
++    await page.getByRole('button', { name: 'Log in' }).click();
++
++    await expect(page.getByText('Invalid credentials')).toBeVisible();
++  });
++});
