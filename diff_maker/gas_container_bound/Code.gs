@@ -8,6 +8,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('差分管理')
     .addItem('差分リスト作成', 'showCreateDiffDialog')
+    .addItem('差分ビュワーを開く', 'showDiffViewerDialog')
     .addItem('案件マスタを開く', 'openProjectMasterSheet')
     .addItem('確認者マスタを開く', 'openReviewerMasterSheet')
     .addItem('差分リストを開く', 'openDiffListSheet')
@@ -33,6 +34,14 @@ function showCreateDiffDialog() {
     .setWidth(1180)
     .setHeight(860);
   SpreadsheetApp.getUi().showModalDialog(html, '差分リスト作成');
+}
+
+function showDiffViewerDialog() {
+  ensureWorkbookSheets_();
+  var html = HtmlService.createHtmlOutputFromFile('DiffViewer')
+    .setWidth(1400)
+    .setHeight(900);
+  SpreadsheetApp.getUi().showModelessDialog(html, '差分ビュワー');
 }
 
 function getDialogBootstrapData() {
@@ -74,6 +83,7 @@ function createDiffListInCurrentSpreadsheet(payload) {
 
   var context = getParentFolderContext_(spreadsheet);
   var diffFile = saveDiffFileToDrive_(context.folder, payload.fileName, normalizedDiffText);
+  var previewHtmlFile = savePreviewHtmlToDrive_(context.folder, payload.fileName, payload.previewHtml);
   var projectSheet = spreadsheet.getSheetByName(PROJECT_MASTER_SHEET);
   var reviewerSheet = spreadsheet.getSheetByName(REVIEWER_MASTER_SHEET);
   var diffListSheet = spreadsheet.getSheetByName(DIFF_LIST_SHEET);
@@ -86,8 +96,12 @@ function createDiffListInCurrentSpreadsheet(payload) {
   var summary = {
     spreadsheetId: spreadsheet.getId(),
     spreadsheetUrl: spreadsheet.getUrl(),
+    diffFileId: diffFile.getId(),
     diffFileName: diffFile.getName(),
     diffFileUrl: diffFile.getUrl(),
+    previewHtmlFileId: previewHtmlFile ? previewHtmlFile.getId() : '',
+    previewHtmlFileName: previewHtmlFile ? previewHtmlFile.getName() : '',
+    previewHtmlFileUrl: previewHtmlFile ? previewHtmlFile.getUrl() : '',
     importedAt: new Date(),
     importedBy: Session.getActiveUser().getEmail() || 'unknown',
     totalUnits: parsedUnits.length,
@@ -120,7 +134,7 @@ function getDiffDetail(spreadsheetId, fileKey) {
   }
 
   var values = metaSheet.getDataRange().getValues();
-  for (var i = 12; i < values.length; i += 1) {
+  for (var i = 16; i < values.length; i += 1) {
     if (String(values[i][0]) !== String(fileKey)) {
       continue;
     }
@@ -137,6 +151,77 @@ function getDiffDetail(spreadsheetId, fileKey) {
   }
 
   throw new Error('該当する差分詳細が見つかりません。');
+}
+
+function getLatestDiffViewerData() {
+  return loadLatestDiffViewerDataFromDrive_();
+}
+
+function refreshLatestDiffViewerData() {
+  return loadLatestDiffViewerDataFromDrive_();
+}
+
+function loadLatestDiffViewerDataFromDrive_() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var metaSheet = spreadsheet.getSheetByName(META_SHEET);
+  if (!metaSheet || metaSheet.getLastRow() < 3) {
+    throw new Error('差分データがありません。先に差分リストを作成してください。');
+  }
+
+  var values = metaSheet.getDataRange().getValues();
+  var diffFileName = values[0] && values[0][1] ? String(values[0][1]) : '';
+  var diffFileId = values[1] && values[1][1] ? String(values[1][1]) : '';
+  var diffFileUrl = values[2] && values[2][1] ? String(values[2][1]) : '';
+  var previewHtmlFileName = values[3] && values[3][1] ? String(values[3][1]) : '';
+  var previewHtmlFileId = values[4] && values[4][1] ? String(values[4][1]) : '';
+  var previewHtmlFileUrl = values[5] && values[5][1] ? String(values[5][1]) : '';
+  var importedAt = values[7] ? values[7][1] : '';
+  var importedBy = values[8] && values[8][1] ? String(values[8][1]) : '';
+
+  if (!previewHtmlFileId && previewHtmlFileUrl) {
+    previewHtmlFileId = getDriveFileIdFromUrl_(previewHtmlFileUrl);
+  }
+
+  if (previewHtmlFileId) {
+    try {
+      var previewHtmlFile = DriveApp.getFileById(previewHtmlFileId);
+      return {
+        diffFileId: diffFileId,
+        diffFileName: diffFileName || '最新差分',
+        diffFileUrl: diffFileUrl,
+        previewHtmlFileId: previewHtmlFileId,
+        previewHtmlFileName: previewHtmlFileName || previewHtmlFile.getName(),
+        previewHtmlFileUrl: previewHtmlFileUrl || previewHtmlFile.getUrl(),
+        importedAt: toSerializableCellValue_(importedAt),
+        importedBy: importedBy,
+        renderedHtml: previewHtmlFile.getBlob().getDataAsString(),
+        cacheSource: 'drive-preview-html'
+      };
+    } catch (error) {
+    }
+  }
+
+  if (!diffFileId && diffFileUrl) {
+    diffFileId = getDriveFileIdFromUrl_(diffFileUrl);
+  }
+  if (!diffFileId) {
+    throw new Error('元 diff ファイル ID を取得できません。差分リストを再作成してください。');
+  }
+
+  var diffFile = DriveApp.getFileById(diffFileId);
+  var diffText = diffFile.getBlob().getDataAsString();
+  return {
+    diffFileId: diffFileId,
+    diffFileName: diffFileName || diffFile.getName(),
+    diffFileUrl: diffFileUrl || diffFile.getUrl(),
+    previewHtmlFileId: previewHtmlFileId,
+    previewHtmlFileName: previewHtmlFileName,
+    previewHtmlFileUrl: previewHtmlFileUrl,
+    importedAt: toSerializableCellValue_(importedAt),
+    importedBy: importedBy,
+    diffText: normalizeNewlines_(diffText),
+    cacheSource: 'drive'
+  };
 }
 
 function ensureWorkbookSheets_() {
@@ -167,7 +252,7 @@ function ensureWorkbookSheets_() {
       ['reviewer1@example.com'],
       ['reviewer2@example.com'],
       ['reviewer3@example.com']
-    ]]);
+    ]);
     formatReviewerMasterSheet_(reviewerSheet);
   }
   var metaSheet = spreadsheet.getSheetByName(META_SHEET);
@@ -192,6 +277,18 @@ function saveDiffFileToDrive_(folder, fileName, diffText) {
   var suffix = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
   var fullName = safeName.replace(/\.diff$|\.patch$/i, '') + '_' + suffix + '.diff';
   return folder.createFile(fullName, diffText, MimeType.PLAIN_TEXT);
+}
+
+function savePreviewHtmlToDrive_(folder, fileName, previewHtml) {
+  var html = String(previewHtml || '').trim();
+  if (!html) {
+    return null;
+  }
+
+  var safeName = fileName || 'uploaded.diff';
+  var suffix = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
+  var fullName = safeName.replace(/\.diff$|\.patch$/i, '') + '_preview_' + suffix + '.html';
+  return folder.createFile(fullName, html, MimeType.HTML);
 }
 
 function populateDiffListSheet_(sheet, diffUnits, spreadsheetId) {
@@ -254,7 +351,11 @@ function populateMetaSheet_(sheet, summary, diffUnits) {
   sheet.clear();
   var metadataRows = [
     ['元diffファイル名', summary.diffFileName],
+    ['元diffファイルID', summary.diffFileId],
     ['元diffファイルURL', summary.diffFileUrl],
+    ['プレビューHTMLファイル名', summary.previewHtmlFileName],
+    ['プレビューHTMLファイルID', summary.previewHtmlFileId],
+    ['プレビューHTMLファイルURL', summary.previewHtmlFileUrl],
     ['親スプレッドシートURL', summary.spreadsheetUrl],
     ['取込日時', summary.importedAt],
     ['取込者', summary.importedBy],
@@ -282,7 +383,7 @@ function populateMetaSheet_(sheet, summary, diffUnits) {
         unit.diffText
       ];
     });
-    sheet.getRange(13, 1, detailRows.length, 8).setValues(detailRows);
+    sheet.getRange(17, 1, detailRows.length, 8).setValues(detailRows);
   }
 
   formatMetaSheet_(sheet, diffUnits.length);
@@ -325,8 +426,8 @@ function formatReviewerMasterSheet_(sheet) {
 }
 
 function formatMetaSheet_(sheet, detailRowCount) {
-  sheet.getRange(1, 1, 10, 1).setBackground('#f3f6fa').setFontWeight('bold');
-  sheet.getRange(12, 1, 1, 8).setBackground('#7f6000').setFontColor('#ffffff').setFontWeight('bold');
+  sheet.getRange(1, 1, 14, 1).setBackground('#f3f6fa').setFontWeight('bold');
+  sheet.getRange(16, 1, 1, 8).setBackground('#7f6000').setFontColor('#ffffff').setFontWeight('bold');
   sheet.setColumnWidths(1, 1, 180);
   sheet.setColumnWidths(2, 1, 220);
   sheet.setColumnWidths(3, 1, 360);
@@ -424,8 +525,30 @@ function buildDetailUrl_(spreadsheetId, fileKey) {
   return baseUrl + '?view=detail&spreadsheetId=' + encodeURIComponent(spreadsheetId) + '&fileKey=' + encodeURIComponent(fileKey);
 }
 
+function getDriveFileIdFromUrl_(url) {
+  var value = String(url || '');
+  var directMatch = value.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (directMatch) {
+    return directMatch[1];
+  }
+
+  var pathMatch = value.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (pathMatch) {
+    return pathMatch[1];
+  }
+
+  return '';
+}
+
 function normalizeNewlines_(text) {
   return String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
+function toSerializableCellValue_(value) {
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy/MM/dd HH:mm:ss');
+  }
+  return value == null ? '' : String(value);
 }
 
 function padRows_(rows, width) {

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>差分ビュワー</title>
+  <link rel="stylesheet" href="https://unpkg.com/diff2html/bundles/css/diff2html.min.css">
+  <style>
+    body{margin:0;padding:16px;background:#f6f8fa;color:#222;font:14px/1.5 Segoe UI,system-ui,sans-serif}
+    .panel{background:#fff;border:1px solid #e6edf3;border-radius:12px;padding:16px;margin-bottom:16px}
+    .meta{display:grid;gap:6px;margin-bottom:12px}
+    .title{margin:0;font-size:20px}
+    .status{font-size:13px;color:#6e7781;min-height:20px}
+    .status.error{color:#cf222e}
+    .status.success{color:#1a7f37}
+    #diffOutput{background:#fff;border:1px solid #e6edf3;border-radius:12px;padding:12px;overflow:auto;min-height:640px}
+    #diffOutput .d2h-wrapper{min-width:1080px}
+    .file-toggle{position:absolute;top:7px;right:10px;z-index:2;background:#eef3f8;color:#24292e;border:1px solid #d0d7de;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
+    .d2h-file-header{position:relative;display:flex;align-items:center;gap:8px;padding-right:92px}
+    .d2h-file-wrapper.is-collapsed .d2h-file-diff,.d2h-file-wrapper.is-collapsed .d2h-files-diff{display:none}
+    .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+    .button{background:#0969da;color:#fff;border:0;border-radius:8px;padding:10px 14px;cursor:pointer;font:inherit}
+    .button.secondary{background:#6e7781}
+  </style>
+</head>
+<body>
+  <section class="panel">
+    <div class="meta">
+      <h1 class="title">差分ビュワー</h1>
+      <strong id="fileName">読込中...</strong>
+      <span id="importedMeta"></span>
+    </div>
+    <p id="statusText" class="status">差分を読込中...</p>
+    <div class="actions">
+      <button id="reloadButton" class="button secondary" type="button">再読込</button>
+      <button id="closeButton" class="button" type="button">閉じる</button>
+    </div>
+  </section>
+  <section id="diffOutput"></section>
+
+  <script src="https://unpkg.com/diff2html/bundles/js/diff2html.min.js"></script>
+  <script>
+    var STORAGE_KEY = 'diffViewer.cache';
+
+    function setStatus(message, kind) {
+      var node = document.getElementById('statusText');
+      node.textContent = message;
+      node.className = kind ? 'status ' + kind : 'status';
+    }
+
+    function readCache() {
+      try {
+        var raw = window.sessionStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function writeCache(data) {
+      try {
+        window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      } catch (error) {
+      }
+    }
+
+    function clearCache() {
+      try {
+        window.sessionStorage.removeItem(STORAGE_KEY);
+      } catch (error) {
+      }
+    }
+
+    function attachFileToggles() {
+      document.querySelectorAll('.d2h-file-wrapper').forEach(function(fileWrapper) {
+        var header = fileWrapper.querySelector('.d2h-file-header');
+        var fileDiff = fileWrapper.querySelector('.d2h-file-diff, .d2h-files-diff');
+        if (!header || !fileDiff || header.querySelector('.file-toggle')) {
+          return;
+        }
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'file-toggle';
+        button.textContent = '折りたたむ';
+        button.addEventListener('click', function() {
+          var collapsed = fileWrapper.classList.toggle('is-collapsed');
+          button.textContent = collapsed ? '展開' : '折りたたむ';
+          button.setAttribute('aria-expanded', String(!collapsed));
+        });
+        button.setAttribute('aria-expanded', 'true');
+        header.appendChild(button);
+      });
+    }
+
+    function render(data) {
+      if (!data || (!data.renderedHtml && !data.diffText)) {
+        document.getElementById('diffOutput').innerHTML = '';
+        setStatus('差分データを取得できませんでした。差分リストを再作成してから再読込してください。', 'error');
+        return;
+      }
+
+      document.getElementById('fileName').textContent = data.diffFileName || '最新差分';
+      document.getElementById('importedMeta').textContent = [data.importedAt || '', data.importedBy || ''].filter(Boolean).join(' / ');
+      if (data.renderedHtml) {
+        document.getElementById('diffOutput').innerHTML = data.renderedHtml;
+      } else {
+        document.getElementById('diffOutput').innerHTML = Diff2Html.html(data.diffText || '', {
+          drawFileList: true,
+          fileListToggle: true,
+          matching: 'lines',
+          outputFormat: 'side-by-side'
+        });
+      }
+      attachFileToggles();
+      var sourceLabel = 'Drive';
+      if (data.cacheSource === 'session-storage') {
+        sourceLabel = 'ブラウザの一時ストレージ';
+      } else if (data.cacheSource === 'drive-preview-html') {
+        sourceLabel = 'Drive の保存済みプレビューHTML';
+      }
+      setStatus('差分を表示しました。読込元: ' + sourceLabel + '。各ファイルの位置はスクロールして確認してください。', 'success');
+    }
+
+    function loadViewerFromDrive() {
+      setStatus('差分を読込中...', '');
+      google.script.run
+        .withSuccessHandler(function(data) {
+          if (!data) {
+            render(null);
+            return;
+          }
+          writeCache(data);
+          render(data);
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('diffOutput').innerHTML = '';
+          setStatus(error.message || String(error), 'error');
+        })
+        .getLatestDiffViewerData();
+    }
+
+    function loadViewer() {
+      var cached = readCache();
+      if (cached && (cached.diffText || cached.renderedHtml)) {
+        cached.cacheSource = 'session-storage';
+        render(cached);
+        return;
+      }
+      loadViewerFromDrive();
+    }
+
+    function refreshViewer() {
+      setStatus('差分を再読込中...', '');
+      google.script.run
+        .withSuccessHandler(function(data) {
+          if (!data) {
+            render(null);
+            return;
+          }
+          writeCache(data);
+          render(data);
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('diffOutput').innerHTML = '';
+          setStatus(error.message || String(error), 'error');
+        })
+        .refreshLatestDiffViewerData();
+    }
+
+    document.getElementById('reloadButton').addEventListener('click', refreshViewer);
+    document.getElementById('closeButton').addEventListener('click', function() {
+      clearCache();
+      google.script.host.close();
+    });
+
+    window.addEventListener('beforeunload', clearCache);
+
+    loadViewer();
+  </script>
+</body>
+</html>

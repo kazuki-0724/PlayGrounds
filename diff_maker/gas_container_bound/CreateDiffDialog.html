@@ -139,7 +139,8 @@
         })
         .createDiffListInCurrentSpreadsheet({
           fileName: state.diffFileName || 'uploaded.diff',
-          diffText: state.diffText
+          diffText: state.diffText,
+          previewHtml: preview.innerHTML
         });
     }
 
