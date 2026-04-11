@@ -27,6 +27,8 @@
     .job-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
     .job-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .job-meta{font-size:12px;color:var(--muted)}
+    .job-status{margin-left:auto;font-size:12px;font-weight:600;color:var(--muted)}
+    .job-status.done{color:var(--success)}
     #preview{background:#fff;border:1px solid #e6edf3;border-radius:12px;padding:12px;overflow:auto;min-height:640px}
     #preview .d2h-wrapper{min-width:960px}
     .file-toggle{position:absolute;top:7px;right:10px;z-index:2;background:#eef3f8;color:#24292e;border:1px solid #d0d7de;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
@@ -49,7 +51,8 @@
       <div id="jobs" class="jobs"></div>
 
       <div class="row" style="margin-top:12px;">
-        <button id="createBtn" class="btn" type="button">差分リスト作成</button>
+        <button id="createSelectedBtn" class="btn" type="button">選択中を作成</button>
+        <button id="createAllBtn" class="btn" type="button">まとめて作成</button>
         <button id="clearBtn" class="btn secondary" type="button">クリア</button>
       </div>
 
@@ -77,7 +80,8 @@
     var statusText = document.getElementById('statusText');
     var resultBox = document.getElementById('resultBox');
     var resultMessage = document.getElementById('resultMessage');
-    var createBtn = document.getElementById('createBtn');
+    var createSelectedBtn = document.getElementById('createSelectedBtn');
+    var createAllBtn = document.getElementById('createAllBtn');
 
     function readStoredState() {
       try {
@@ -104,7 +108,10 @@
               id: job.id,
               fileName: job.fileName,
               outputName: job.outputName,
-              diffText: job.diffText
+              diffText: job.diffText,
+              isCreated: Boolean(job.isCreated),
+              lastHtmlFileUrl: job.lastHtmlFileUrl || '',
+              lastSheetName: job.lastSheetName || ''
             };
           })
         }));
@@ -168,6 +175,8 @@
 
       jobsRoot.innerHTML = state.jobs.map(function(job) {
         var activeClass = job.id === state.activeJobId ? 'job active' : 'job';
+        var statusClass = job.isCreated ? 'job-status done' : 'job-status';
+        var statusLabel = job.isCreated ? '作成済み' : '未作成';
         return ''
           + '<div class="' + activeClass + '" data-job-id="' + escapeHtml(job.id) + '">'
           + '  <div class="job-header">'
@@ -176,6 +185,7 @@
           + '      <div class="job-title">' + escapeHtml(job.fileName) + '</div>'
           + '      <div class="job-meta">' + escapeHtml(job.outputName) + '.html / シート名: ' + escapeHtml(job.outputName) + '</div>'
           + '    </div>'
+          + '    <span class="' + statusClass + '">' + statusLabel + '</span>'
           + '  </div>'
           + '  <div class="field" style="margin:0;">'
           + '    <label>出力名</label>'
@@ -202,12 +212,20 @@
             return;
           }
           job.outputName = event.target.value;
+          job.isCreated = false;
+          job.lastHtmlFileUrl = '';
+          job.lastSheetName = '';
           writeStoredState();
           var container = event.target.closest('.job');
           if (container) {
             var meta = container.querySelector('.job-meta');
+            var status = container.querySelector('.job-status');
             if (meta) {
               meta.textContent = (job.outputName || '') + '.html / シート名: ' + (job.outputName || '');
+            }
+            if (status) {
+              status.textContent = '未作成';
+              status.className = 'job-status';
             }
           }
         });
@@ -234,46 +252,76 @@
       }
     }
 
-    function createDiffList() {
+    function prepareJobsForCreation(targetJobs) {
+      if (!targetJobs.length) {
+        return { ok: false, message: '作成対象の diff ファイルがありません。' };
+      }
+
+      for (var i = 0; i < targetJobs.length; i += 1) {
+        if (!String(targetJobs[i].outputName || '').trim()) {
+          return { ok: false, message: 'すべての diff ファイルに出力名を入力してください。' };
+        }
+        try {
+          targetJobs[i].previewHtml = buildPreviewMarkup(targetJobs[i].diffText);
+        } catch (error) {
+          return { ok: false, message: 'プレビュー生成に失敗しました: ' + targetJobs[i].fileName };
+        }
+      }
+
+      return { ok: true };
+    }
+
+    function runCreateJobs(targetJobs, modeLabel) {
       if (!state.jobs.length) {
         setStatus('差分ファイルをアップロードしてください。', 'error');
         return;
       }
 
-      for (var i = 0; i < state.jobs.length; i += 1) {
-        if (!String(state.jobs[i].outputName || '').trim()) {
-          setStatus('すべての diff ファイルに出力名を入力してください。', 'error');
-          return;
-        }
-        try {
-          state.jobs[i].previewHtml = buildPreviewMarkup(state.jobs[i].diffText);
-        } catch (error) {
-          setStatus('プレビュー生成に失敗しました: ' + state.jobs[i].fileName, 'error');
-          return;
-        }
+      var prepared = prepareJobsForCreation(targetJobs);
+      if (!prepared.ok) {
+        setStatus(prepared.message, 'error');
+        return;
       }
 
-      createBtn.disabled = true;
-      setStatus('差分リストを作成中...', '');
+      createSelectedBtn.disabled = true;
+      createAllBtn.disabled = true;
+      setStatus(modeLabel + 'を実行中...', '');
       google.script.run
         .withSuccessHandler(function(result) {
-          createBtn.disabled = false;
+          var reports = result && Array.isArray(result.reports) ? result.reports : [];
+          createSelectedBtn.disabled = false;
+          createAllBtn.disabled = false;
+
+          reports.forEach(function(report) {
+            var job = state.jobs.find(function(item) {
+              return item.outputName === report.outputName;
+            });
+            if (job) {
+              job.isCreated = true;
+              job.lastHtmlFileUrl = report.htmlFileUrl || '';
+              job.lastSheetName = report.sheetName || '';
+            }
+          });
+
+          renderJobs();
           resultBox.style.display = 'block';
-          resultMessage.innerHTML = result.reports.map(function(report) {
+          resultMessage.innerHTML = reports.map(function(report) {
             return '<div>'
               + '<strong>' + escapeHtml(report.outputName) + '</strong>'
               + ' / シート: ' + escapeHtml(report.sheetName)
               + ' / <a href="' + escapeHtml(report.htmlFileUrl) + '" target="_blank" rel="noopener">HTML を開く</a>'
               + '</div>';
-          }).join('');
-          setStatus('差分リストと完成 HTML を作成しました。案件と確認者は各シート上のプルダウンから選択してください。', 'success');
+          }).join('') || '<div>差分リストを作成しました。</div>';
+          writeStoredState();
+          setStatus(modeLabel + 'が完了しました。案件と確認者は各シート上のプルダウンから選択してください。', 'success');
         })
         .withFailureHandler(function(error) {
-          createBtn.disabled = false;
+          createSelectedBtn.disabled = false;
+          createAllBtn.disabled = false;
           setStatus(error.message || String(error), 'error');
         })
         .createDiffListsInCurrentSpreadsheet({
-          jobs: state.jobs.map(function(job) {
+          jobs: targetJobs.map(function(job) {
             return {
               fileName: job.fileName,
               outputName: job.outputName,
@@ -282,6 +330,26 @@
             };
           })
         });
+    }
+
+    function createSelectedJob() {
+      var activeJob = getActiveJob();
+      if (!activeJob) {
+        setStatus('作成対象の diff ファイルを選択してください。', 'error');
+        return;
+      }
+      runCreateJobs([activeJob], '選択中の差分リスト作成');
+    }
+
+    function createAllJobs() {
+      var pendingJobs = state.jobs.filter(function(job) {
+        return !job.isCreated;
+      });
+      if (!pendingJobs.length) {
+        setStatus('未作成の diff ファイルはありません。', 'success');
+        return;
+      }
+      runCreateJobs(pendingJobs, 'まとめて作成');
     }
 
     function clearAll() {
@@ -338,7 +406,10 @@
             fileName: file.name,
             outputName: toDefaultOutputName(file.name),
             diffText: text,
-            previewHtml: ''
+            previewHtml: '',
+            isCreated: false,
+            lastHtmlFileUrl: '',
+            lastSheetName: ''
           };
         });
       })).then(function(jobs) {
@@ -369,7 +440,8 @@
       });
     });
 
-    document.getElementById('createBtn').addEventListener('click', createDiffList);
+    createSelectedBtn.addEventListener('click', createSelectedJob);
+    createAllBtn.addEventListener('click', createAllJobs);
     document.getElementById('clearBtn').addEventListener('click', clearAll);
 
     (function initialize() {
@@ -381,7 +453,10 @@
             fileName: job.fileName,
             outputName: job.outputName,
             diffText: job.diffText,
-            previewHtml: ''
+            previewHtml: '',
+            isCreated: Boolean(job.isCreated),
+            lastHtmlFileUrl: job.lastHtmlFileUrl || '',
+            lastSheetName: job.lastSheetName || ''
           };
         });
         state.activeJobId = stored.activeJobId || (state.jobs[0] ? state.jobs[0].id : '');

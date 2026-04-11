@@ -61,14 +61,10 @@ function createDiffListsInCurrentSpreadsheet(payload) {
     reportResults.push({
       outputName: outputName,
       sheetName: reportSheet.getName(),
-      htmlFileName: htmlFile.getName(),
       htmlFileUrl: htmlFile.getUrl(),
-      diffFileName: diffFile.getName(),
       diffFileUrl: diffFile.getUrl(),
       totalUnits: parsedUnits.length,
-      totalFiles: countDistinctFiles_(parsedUnits),
-      createdAt: createdAt,
-      createdBy: createdBy
+      totalFiles: countDistinctFiles_(parsedUnits)
     });
   });
 
@@ -209,8 +205,8 @@ function updateOutputHistorySheet_(sheet, reports) {
       report.sheetName,
       report.htmlFileUrl,
       report.diffFileUrl,
-      toSerializableCellValue_(report.createdAt),
-      report.createdBy,
+      toSerializableCellValue_(new Date()),
+      Session.getActiveUser().getEmail() || 'unknown',
       report.totalUnits,
       report.totalFiles
     ];
@@ -344,41 +340,12 @@ function parseDiffTextToUnits_(diffText) {
 }
 
 function buildDiffUnit_(filePath, fileName, fileHeaderLines, hunkHeader, hunkLines) {
-  var additions = 0;
-  var deletions = 0;
-  hunkLines.forEach(function(line) {
-    if (/^\+[^+]/.test(line)) {
-      additions += 1;
-    }
-    if (/^-[^-]/.test(line)) {
-      deletions += 1;
-    }
-  });
-
   return {
-    fileKey: 'diff_' + Utilities.getUuid(),
     filePath: filePath,
     fileName: fileName,
     hunkHeader: hunkHeader || '(no hunk header)',
-    additions: additions,
-    deletions: deletions,
     diffText: fileHeaderLines.concat(hunkLines).join('\n').trim()
   };
-}
-
-function getDriveFileIdFromUrl_(url) {
-  var value = String(url || '');
-  var directMatch = value.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-  if (directMatch) {
-    return directMatch[1];
-  }
-
-  var pathMatch = value.match(/\/d\/([a-zA-Z0-9_-]+)/);
-  if (pathMatch) {
-    return pathMatch[1];
-  }
-
-  return '';
 }
 
 function normalizeNewlines_(text) {
@@ -400,63 +367,10 @@ function ensureWritableSheetName_(sheetName) {
 }
 
 function buildPreviewHtmlDocument_(title, renderedHtml) {
-  var safeTitle = escapeHtml_(title);
-  return [
-    '<!doctype html>',
-    '<html lang="ja">',
-    '<head>',
-    '  <meta charset="utf-8">',
-    '  <meta name="viewport" content="width=device-width, initial-scale=1">',
-    '  <title>' + safeTitle + '</title>',
-    '  <link rel="stylesheet" href="https://unpkg.com/diff2html/bundles/css/diff2html.min.css">',
-    '  <style>',
-    '    body{margin:0;padding:16px;background:#f6f8fa;color:#222;font:14px/1.5 Segoe UI,system-ui,sans-serif}',
-    '    .panel{background:#fff;border:1px solid #e6edf3;border-radius:12px;padding:16px;margin-bottom:16px}',
-    '    .title{margin:0 0 8px;font-size:20px}',
-    '    .hint{margin:0;color:#6e7781}',
-    '    #diffOutput{background:#fff;border:1px solid #e6edf3;border-radius:12px;padding:12px;overflow:auto}',
-    '    #diffOutput .d2h-wrapper{min-width:1080px}',
-    '    .file-toggle{position:absolute;top:7px;right:10px;z-index:2;background:#eef3f8;color:#24292e;border:1px solid #d0d7de;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}',
-    '    .d2h-file-header{position:relative;display:flex;align-items:center;gap:8px;padding-right:92px}',
-    '    .d2h-file-wrapper.is-collapsed .d2h-file-diff,.d2h-file-wrapper.is-collapsed .d2h-files-diff{display:none}',
-    '  </style>',
-    '</head>',
-    '<body>',
-    '  <section class="panel">',
-    '    <h1 class="title">' + safeTitle + '</h1>',
-    '    <p class="hint">保存済みの差分プレビュー HTML です。</p>',
-    '  </section>',
-    '  <section id="diffOutput">' + String(renderedHtml || '') + '</section>',
-    '  <script>',
-    '    (function(){',
-    '      document.querySelectorAll(".d2h-file-wrapper").forEach(function(fileWrapper){',
-    '        var header=fileWrapper.querySelector(".d2h-file-header");',
-    '        var fileDiff=fileWrapper.querySelector(".d2h-file-diff, .d2h-files-diff");',
-    '        if(!header||!fileDiff||header.querySelector(".file-toggle")){return;}',
-    '        var button=document.createElement("button");',
-    '        button.type="button";',
-    '        button.className="file-toggle";',
-    '        button.textContent="折りたたむ";',
-    '        button.addEventListener("click", function(){',
-    '          var collapsed=fileWrapper.classList.toggle("is-collapsed");',
-    '          button.textContent=collapsed?"展開":"折りたたむ";',
-    '        });',
-    '        header.appendChild(button);',
-    '      });',
-    '    })();',
-    '  </script>',
-    '</body>',
-    '</html>'
-  ].join('\n');
-}
-
-function escapeHtml_(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  var template = HtmlService.createTemplateFromFile('Preview');
+  template.title = String(title || '差分プレビュー');
+  template.renderedHtml = String(renderedHtml || '');
+  return template.evaluate().getContent();
 }
 
 function toSerializableCellValue_(value) {
@@ -474,8 +388,3 @@ function countDistinctFiles_(diffUnits) {
   return Object.keys(map).length;
 }
 
-function sumProperty_(items, propertyName) {
-  return items.reduce(function(total, item) {
-    return total + Number(item[propertyName] || 0);
-  }, 0);
-}
