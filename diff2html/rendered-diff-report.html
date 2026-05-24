@@ -1,0 +1,88 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diff MD レンダリング比較</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; margin: 0; padding: 0; background-color: #f6f8fa; display: flex; flex-direction: column; height: 100vh; }
+        header { background: #fff; padding: 15px 20px; border-bottom: 1px solid #e1e4e8; z-index: 10; }
+        h1 { font-size: 18px; margin: 0; color: #24292e; }
+        .split-container { display: flex; flex: 1; overflow: hidden; }
+        .pane { flex: 1; padding: 20px 40px; overflow-y: auto; background: #fff; }
+        .pane-left { border-right: 1px solid #e1e4e8; background-color: #fafbfc; }
+        
+        /* Markdownスタイル */
+        .markdown-body { color: #24292e; line-height: 1.6; word-wrap: break-word; }
+        .markdown-body table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
+        .markdown-body table th, .markdown-body table td { border: 1px solid #dfe2e5; padding: 6px 13px; }
+        .markdown-body table tr:nth-child(2n) { background-color: #f6f8fa; }
+        .markdown-body pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; }
+        
+        /* ★ テキストのインラインハイライト */
+        .hl-text-del { background-color: #ffeef0; text-decoration: line-through; color: #cb2431; border-radius: 3px; padding: 0.1em 0.2em; }
+        .hl-text-add { background-color: #e6ffed; color: #22863a; border-radius: 3px; padding: 0.1em 0.2em; }
+        
+        /* ★ テーブル・コード等の全体ハイライト */
+        .hl-bg-del { background-color: #ffeef0; border-left: 4px solid #cb2431; padding: 16px; margin-bottom: 16px; border-radius: 0 4px 4px 0; }
+        .hl-bg-add { background-color: #e6ffed; border-left: 4px solid #22863a; padding: 16px; margin-bottom: 16px; border-radius: 0 4px 4px 0; }
+        .hl-bg-del > :last-child, .hl-bg-add > :last-child { margin-bottom: 0; }
+        .hl-bg-del table, .hl-bg-add table { background-color: #fff; } /* 表内は白背景で見やすく */
+    </style>
+</head>
+<body>
+    <header><h1>MD差分レンダリングレポート (テーブル・コード全体色付け版)</h1></header>
+    <div class="split-container">
+        <div class="pane pane-left" id="left-pane">
+            <div style="color: #cb2431; font-weight: bold; margin-bottom: 15px;">修正前 (Old)</div>
+            <div class="markdown-body"><h1>API仕様書</h1>
+<p>エンドポイントは <code>&lt;span class=&quot;hl-text-del&quot;&gt;v1&lt;/span&gt;</code> を使用してください。</p>
+<table>
+<thead>
+<tr>
+<th>メソッド</th>
+<th>パス</th>
+</tr>
+</thead>
+</table>
+<p>| GET | /users |
+| POST | /users|</p>
+</div>
+        </div>
+        <div class="pane pane-right" id="right-pane">
+            <div style="color: #22863a; font-weight: bold; margin-bottom: 15px;">修正後 (New)</div>
+            <div class="markdown-body"><h1>API仕様書</h1>
+<p>エンドポイントは <code>&lt;span class=&quot;hl-text-add&quot;&gt;v2&lt;/span&gt;</code> を使用してください。</p>
+<table>
+<thead>
+<tr>
+<th>メソッド</th>
+<th>パス</th>
+</tr>
+</thead>
+</table>
+<p>| GET | /users |
+| POST | /users<span class="hl-text-add">/create </span>|
+<span class="hl-text-add">| DELETE | /users/{id} |</span></p>
+</div>
+        </div>
+    </div>
+    <script>
+        const syncScroll = (src, dest) => {
+            let isSyncing = false;
+            src.addEventListener('scroll', () => {
+                if (!isSyncing) {
+                    isSyncing = true;
+                    dest.scrollTop = (src.scrollTop / (src.scrollHeight - src.clientHeight)) * (dest.scrollHeight - dest.clientHeight);
+                }
+                isSyncing = false;
+            });
+        };
+        const leftPane = document.getElementById('left-pane');
+        const rightPane = document.getElementById('right-pane');
+        syncScroll(leftPane, rightPane);
+        syncScroll(rightPane, leftPane);
+    </script>
+</body>
+</html>

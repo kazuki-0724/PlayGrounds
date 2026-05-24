@@ -1,0 +1,15 @@
+--- a/sample.md
++++ b/sample.md
+@@ -1,5 +1,5 @@
+ # API仕様書
+ 
+-エンドポイントは `v1` を使用してください。
++エンドポイントは `v2` を使用してください。
+ 
+ | メソッド | パス |
+ |---|---|
+@@ -10,3 +10,4 @@
+ | GET | /users |
+-| POST | /users |
++| POST | /users/create |
++| DELETE | /users/{id} |
