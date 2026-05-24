@@ -1,0 +1,121 @@
+--- a/src/server.js
++++ b/src/server.js
+@@ -1,5 +1,6 @@
+ const http = require('http');
+ 
+-const PORT = 3000;
++const PORT = 8080;
++
+ const server = http.createServer((req, res) => {
+   res.end('ok');
+ });
+
+--- a/docs/api-spec.md
++++ b/docs/api-spec.md
+@@ -1,8 +1,8 @@
+ # API仕様書
+ 
+-このドキュメントは v1 API を対象とします。
++このドキュメントは v2 API を対象とします。
+ 
+ ## エンドポイント
+ 
+-| basePath | /api/v1 |
++| basePath | /api/v2 |
+ | timeout | 30s |
+@@ -12,10 +12,13 @@
+ | メソッド | パス | 説明 |
+ |---|---|---|
+ | GET | /users | ユーザー一覧 |
+-| POST | /users | ユーザー作成 |
++| POST | /users/create | ユーザー作成 |
++| DELETE | /users/{id} | ユーザー削除 |
+ 
+ ## サンプル
+ 
+ ```bash
+-curl -X POST https://api.example.com/api/v1/users \
++curl -X POST https://api.example.com/api/v2/users/create \
++  -H "Authorization: Bearer <token>" \
+   -H "Content-Type: application/json" \
+-  -d '{"name":"Taro"}'
++  -d '{"name":"Taro","role":"admin"}'
+ ```
+
+--- /dev/null
++++ b/docs/new-feature.md
+@@ -0,0 +1,19 @@
++# 新機能ガイド
++
++このファイルは新規追加された Markdown です。
++
++## 有効化手順
++
++1. 管理画面にログイン
++2. Feature Flag を ON
++3. アプリケーションを再起動
++
++## 設定テーブル
++
++| キー | デフォルト | 説明 |
++|---|---|---|
++| feature.newUI | false | 新UI切替 |
++| feature.auditLog | true | 監査ログ |
++
++```json
++{"enabled": true, "rollout": 100}
++```
+
+--- a/docs/legacy-auth.md
++++ /dev/null
+@@ -1,14 +0,0 @@
+-# 旧認証仕様
+-
+-このファイルは削除対象です。
+-
+-## Basic認証
+-
+-```http
+-Authorization: Basic dXNlcjpwYXNz
+-```
+-
+-| ヘッダー | 必須 |
+-|---|---|
+-| Authorization | 必須 |
+-| X-Request-Id | 任意 |
+
+--- a/README.txt
++++ b/README.txt
+@@ -1,3 +1,3 @@
+-PlayGrounds utilities
++PlayGrounds tools
+ This is a plain text file.
+ Not markdown.
+
+--- a/docs/release-notes.md
++++ b/docs/release-notes.md
+@@ -1,6 +1,8 @@
+ # リリースノート
+ 
+ ## 2026-05
+-- API v1 のみサポート
++- API v2 を正式サポート
++- 旧 API v1 は非推奨
+ 
+ ## 既知の制限
+-- 大量アクセス時に遅延が発生する場合があります。
++- 大量アクセス時に遅延が発生する場合があります。
++- 監査ログ有効時はレスポンスが 5-10% 低下します。
+
+@@ -10,7 +12,10 @@
+ ## 実装スニペット
+
+ ```js
+-const API_BASE = '/api/v1';
+-fetch(`${API_BASE}/users`);
++const API_BASE = '/api/v2';
++const token = 'dummy-token';
++fetch(`${API_BASE}/users/create`, {
++  headers: { Authorization: `Bearer ${token}` }
++});
+ ```

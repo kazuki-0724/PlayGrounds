@@ -1,11 +1,18 @@
 const fs = require('fs');
+const path = require('path');
 
-const diffFilePath = 'sample.diff';
-const reportPath = 'rendered-diff-report.html';
+const inputArgPath = process.argv[2];
+const diffFilePath = inputArgPath || 'sample.diff';
+const reportPath = 'diff-report.html';
 
 if (!fs.existsSync(diffFilePath)) {
     console.error(`エラー: ${diffFilePath} が見つかりません。`);
+    console.error('使い方: node script.js [diffファイルパス]');
     process.exit(1);
+}
+
+if (path.extname(diffFilePath).toLowerCase() !== '.diff') {
+    console.warn(`警告: 入力ファイルが .diff ではありません (${diffFilePath})`);
 }
 
 const diffText = fs.readFileSync(diffFilePath, 'utf8');
@@ -122,6 +129,89 @@ function parseDiffToRows(lines) {
 
     flushBuffers();
     return rows;
+}
+
+function parseDiffPath(line, prefix) {
+    const raw = line.slice(prefix.length).trim();
+    return raw.split(/\t|\s+/)[0] || '';
+}
+
+function normalizeDiffPath(path) {
+    if (!path) {
+        return '';
+    }
+    if (path === '/dev/null') {
+        return path;
+    }
+    return path.replace(/^[ab]\//, '');
+}
+
+function isMarkdownPath(path) {
+    return path.toLowerCase().endsWith('.md');
+}
+
+function splitDiffByFile(lines) {
+    const files = [];
+    let current = null;
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        if (line.startsWith('--- ') && i + 1 < lines.length && lines[i + 1].startsWith('+++ ')) {
+            if (current) {
+                files.push(current);
+            }
+
+            const oldPathRaw = parseDiffPath(line, '--- ');
+            const newPathRaw = parseDiffPath(lines[i + 1], '+++ ');
+            current = {
+                oldPathRaw,
+                newPathRaw,
+                oldPath: normalizeDiffPath(oldPathRaw),
+                newPath: normalizeDiffPath(newPathRaw),
+                lines: [line, lines[i + 1]]
+            };
+            i += 1;
+            continue;
+        }
+
+        if (current) {
+            current.lines.push(line);
+        }
+    }
+
+    if (current) {
+        files.push(current);
+    }
+
+    return files;
+}
+
+function getMarkdownDiffEntries(lines) {
+    const fileEntries = splitDiffByFile(lines);
+
+    return fileEntries
+        .filter((entry) => {
+            const oldIsMd = entry.oldPath !== '/dev/null' && isMarkdownPath(entry.oldPath);
+            const newIsMd = entry.newPath !== '/dev/null' && isMarkdownPath(entry.newPath);
+            return oldIsMd || newIsMd;
+        })
+        .map((entry) => {
+            let status = 'modified';
+            if (entry.oldPath === '/dev/null' && entry.newPath !== '/dev/null') {
+                status = 'added';
+            } else if (entry.newPath === '/dev/null' && entry.oldPath !== '/dev/null') {
+                status = 'deleted';
+            }
+
+            const displayPath = status === 'added' ? entry.newPath : entry.oldPath;
+
+            return {
+                ...entry,
+                status,
+                displayPath
+            };
+        });
 }
 
 function markChangedMarkdownBlocks(rows) {
@@ -386,7 +476,45 @@ function collectMarkdownBlocks(rows) {
 }
 
 function escapeInline(text) {
-    return escapeHtml(text).replace(/`([^`]+)`/g, '<code>$1</code>');
+    return escapeHtml(text)
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+}
+
+function renderTextLineAsHtml(text) {
+    if (text.trim() === '') {
+        return '<div class="rendered-line blank"></div>';
+    }
+
+    const headingMatch = text.match(/^\s*(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+        const level = headingMatch[1].length;
+        const content = escapeInline(headingMatch[2]);
+        return `<h${level} class="rendered-line heading">${content}</h${level}>`;
+    }
+
+    const quoteMatch = text.match(/^\s*>\s?(.*)$/);
+    if (quoteMatch) {
+        return `<blockquote class="rendered-line quote">${escapeInline(quoteMatch[1])}</blockquote>`;
+    }
+
+    const orderedMatch = text.match(/^\s*(\d+)\.\s+(.*)$/);
+    if (orderedMatch) {
+        return `<div class="rendered-line list"><span class="bullet">${orderedMatch[1]}.</span><span>${escapeInline(orderedMatch[2])}</span></div>`;
+    }
+
+    const unorderedMatch = text.match(/^\s*([-*+])\s+(.*)$/);
+    if (unorderedMatch) {
+        return `<div class="rendered-line list"><span class="bullet">${unorderedMatch[1]}</span><span>${escapeInline(unorderedMatch[2])}</span></div>`;
+    }
+
+    if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(text)) {
+        return '<hr class="rendered-line hr" />';
+    }
+
+    return `<div class="rendered-line paragraph">${escapeInline(text)}</div>`;
 }
 
 function renderMarkdownBlock(block) {
@@ -487,13 +615,13 @@ function renderRows(rows, oldBlockChanged, newBlockChanged, oldBlocks, newBlocks
             ? (oldBlock.start === idx
                 ? `<div class="md-block-wrap">${oldRendered}</div>`
                 : '<div class="md-block-fill"></div>')
-            : `<pre>${oldText}</pre>`;
+            : renderTextLineAsHtml(row.oldText || '');
 
         const newCellHtml = newIsBlockRow
             ? (newBlock.start === idx
                 ? `<div class="md-block-wrap">${newRendered}</div>`
                 : '<div class="md-block-fill"></div>')
-            : `<pre>${newText}</pre>`;
+            : renderTextLineAsHtml(row.newText || '');
 
         return `
             <tr>
@@ -506,10 +634,51 @@ function renderRows(rows, oldBlockChanged, newBlockChanged, oldBlocks, newBlocks
     }).join('');
 }
 
-const rows = parseDiffToRows(diffLines);
-const { oldBlockChanged, newBlockChanged } = markChangedMarkdownBlocks(rows);
-const { oldBlocks, newBlocks } = collectMarkdownBlocks(rows);
-const tableRowsHtml = renderRows(rows, oldBlockChanged, newBlockChanged, oldBlocks, newBlocks);
+function renderFileDiffSection(entry, index) {
+    const rows = parseDiffToRows(entry.lines);
+    const { oldBlockChanged, newBlockChanged } = markChangedMarkdownBlocks(rows);
+    const { oldBlocks, newBlocks } = collectMarkdownBlocks(rows);
+    const tableRowsHtml = renderRows(rows, oldBlockChanged, newBlockChanged, oldBlocks, newBlocks);
+
+    const statusLabel = entry.status === 'added'
+        ? '新規'
+        : entry.status === 'deleted'
+            ? '削除'
+            : '変更';
+
+    const oldName = entry.oldPath === '/dev/null' ? '(なし)' : escapeHtml(entry.oldPath);
+    const newName = entry.newPath === '/dev/null' ? '(なし)' : escapeHtml(entry.newPath);
+    const displayName = escapeHtml(entry.displayPath || `file-${index + 1}.md`);
+
+    return `
+        <section class="file-section">
+            <div class="file-header">
+                <div class="file-title">${displayName}</div>
+                <div class="file-meta">種別: ${statusLabel} / old: ${oldName} / new: ${newName}</div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="no-col">Old</th>
+                            <th>修正前</th>
+                            <th class="no-col">New</th>
+                            <th>修正後</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRowsHtml}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    `;
+}
+
+const markdownDiffEntries = getMarkdownDiffEntries(diffLines);
+const allSectionsHtml = markdownDiffEntries.length === 0
+    ? '<div class="empty-result">Markdown（.md）差分が見つかりませんでした。md 以外の差分は表示対象外です。</div>'
+    : markdownDiffEntries.map((entry, idx) => renderFileDiffSection(entry, idx)).join('');
 
 const reportHtml = `
 <!DOCTYPE html>
@@ -569,14 +738,48 @@ const reportHtml = `
 
         .container {
             padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .file-section {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--panel);
+            box-shadow: 0 8px 24px rgba(20, 39, 64, 0.08);
+            overflow: hidden;
+        }
+
+        .file-header {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            background: #f9fbfe;
+        }
+
+        .file-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #1f2937;
+        }
+
+        .file-meta {
+            margin-top: 2px;
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        .empty-result {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--panel);
+            padding: 18px;
+            color: var(--muted);
+            font-size: 13px;
         }
 
         .table-wrap {
-            border: 1px solid var(--border);
-            border-radius: 10px;
             overflow: auto;
-            background: var(--panel);
-            box-shadow: 0 8px 24px rgba(20, 39, 64, 0.08);
         }
 
         table {
@@ -633,6 +836,51 @@ const reportHtml = `
         td.code.del pre,
         td.code.mod-old pre {
             text-decoration: line-through;
+        }
+
+        .rendered-line {
+            margin: 0;
+            padding: 2px 10px;
+            min-height: 22px;
+            line-height: 1.45;
+            font-size: 12px;
+        }
+
+        .rendered-line.heading {
+            font-weight: 700;
+        }
+
+        .rendered-line.list {
+            display: flex;
+            gap: 6px;
+        }
+
+        .rendered-line.quote {
+            border-left: 3px solid #b9c6d6;
+            padding-left: 8px;
+            color: #475569;
+        }
+
+        .rendered-line.blank {
+            min-height: 22px;
+        }
+
+        .rendered-line.hr {
+            border: none;
+            border-top: 1px solid #cbd5e1;
+            margin: 10px;
+            min-height: 0;
+            padding: 0;
+        }
+
+        td.code.del .rendered-line,
+        td.code.mod-old .rendered-line {
+            text-decoration: line-through;
+        }
+
+        .rendered-line a {
+            color: #1d4ed8;
+            text-decoration: underline;
         }
 
         .context {
@@ -724,24 +972,10 @@ const reportHtml = `
 <body>
     <header>
         <h1>差分レポート (サイドバイサイド)</h1>
-        <div class="summary">通常テキストは行単位差分で表示し、Markdownの表ブロックとコードブロックのみブロック全体を強調表示します。</div>
+        <div class="summary">md差分のみを対象に、通常テキストは行単位差分、表とコードブロックはブロック全体強調で表示します。</div>
     </header>
     <div class="container">
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th class="no-col">Old</th>
-                        <th>修正前</th>
-                        <th class="no-col">New</th>
-                        <th>修正後</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${tableRowsHtml}
-                </tbody>
-            </table>
-        </div>
+        ${allSectionsHtml}
     </div>
 </body>
 </html>

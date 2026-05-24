@@ -1,0 +1,908 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>差分レポート</title>
+    <style>
+        :root {
+            --bg: #f5f7fb;
+            --panel: #ffffff;
+            --text: #1f2937;
+            --muted: #6b7280;
+            --border: #dbe2ea;
+            --context: #ffffff;
+            --add: #e8fff0;
+            --del: #ffeef0;
+            --mod-old: #fff2d9;
+            --mod-new: #e8f4ff;
+            --block-old: #ffe4e8;
+            --block-new: #e2f7e8;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: linear-gradient(180deg, #eef3fb 0%, var(--bg) 40%, #edf2f8 100%);
+            color: var(--text);
+            font-family: Consolas, "Cascadia Code", "SFMono-Regular", Menlo, Monaco, "Liberation Mono", monospace;
+        }
+
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(6px);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 16px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .summary {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .container {
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .file-section {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--panel);
+            box-shadow: 0 8px 24px rgba(20, 39, 64, 0.08);
+            overflow: hidden;
+        }
+
+        .file-header {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            background: #f9fbfe;
+        }
+
+        .file-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #1f2937;
+        }
+
+        .file-meta {
+            margin-top: 2px;
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        .empty-result {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--panel);
+            padding: 18px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .table-wrap {
+            overflow: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #f9fbfe;
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+            color: #334155;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th.no-col {
+            width: 56px;
+            text-align: right;
+        }
+
+        td {
+            border-bottom: 1px solid #edf2f7;
+            vertical-align: top;
+        }
+
+        td.line-no {
+            text-align: right;
+            color: var(--muted);
+            user-select: none;
+            padding: 0 8px;
+            border-right: 1px solid #edf2f7;
+        }
+
+        td.code {
+            padding: 0;
+        }
+
+        td.code pre {
+            margin: 0;
+            padding: 2px 10px;
+            min-height: 22px;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: inherit;
+            font-size: 12px;
+        }
+
+        td.code.del pre,
+        td.code.mod-old pre {
+            text-decoration: line-through;
+        }
+
+        .rendered-line {
+            margin: 0;
+            padding: 2px 10px;
+            min-height: 22px;
+            line-height: 1.45;
+            font-size: 12px;
+        }
+
+        .rendered-line.heading {
+            font-weight: 700;
+        }
+
+        .rendered-line.list {
+            display: flex;
+            gap: 6px;
+        }
+
+        .rendered-line.quote {
+            border-left: 3px solid #b9c6d6;
+            padding-left: 8px;
+            color: #475569;
+        }
+
+        .rendered-line.blank {
+            min-height: 22px;
+        }
+
+        .rendered-line.hr {
+            border: none;
+            border-top: 1px solid #cbd5e1;
+            margin: 10px;
+            min-height: 0;
+            padding: 0;
+        }
+
+        td.code.del .rendered-line,
+        td.code.mod-old .rendered-line {
+            text-decoration: line-through;
+        }
+
+        .rendered-line a {
+            color: #1d4ed8;
+            text-decoration: underline;
+        }
+
+        .context {
+            background: var(--context);
+        }
+
+        .add {
+            background: var(--add);
+        }
+
+        .del {
+            background: var(--del);
+        }
+
+        .mod-old {
+            background: var(--mod-old);
+        }
+
+        .mod-new {
+            background: var(--mod-new);
+        }
+
+        .empty {
+            background: #fafbfc;
+            color: #c5ced8;
+        }
+
+        .md-block-changed-old {
+            box-shadow: inset 4px 0 0 #d63254;
+            background-color: var(--block-old);
+        }
+
+        .md-block-changed-new {
+            box-shadow: inset 4px 0 0 #1f8f4b;
+            background-color: var(--block-new);
+        }
+
+        .md-block-row {
+            background: #f8fafc;
+        }
+
+        .md-block-wrap {
+            padding: 8px 10px;
+        }
+
+        .md-block-fill {
+            min-height: 22px;
+        }
+
+        .rendered-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            font-size: 12px;
+            background: #ffffff;
+        }
+
+        .rendered-table th,
+        .rendered-table td {
+            border: 1px solid #d7e0ea;
+            padding: 6px 8px;
+            text-align: left;
+        }
+
+        .rendered-code {
+            margin: 0;
+            padding: 10px;
+            border: 1px solid #d5dee8;
+            border-radius: 6px;
+            background: #ffffff;
+            overflow: auto;
+            line-height: 1.45;
+            font-size: 12px;
+            white-space: pre;
+            text-decoration: none;
+        }
+
+        .rendered-code code {
+            font-family: inherit;
+        }
+
+        @media (max-width: 900px) {
+            .table-wrap {
+                border-radius: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>差分レポート (サイドバイサイド)</h1>
+        <div class="summary">md差分のみを対象に、通常テキストは行単位差分、表とコードブロックはブロック全体強調で表示します。</div>
+    </header>
+    <div class="container">
+        
+        <section class="file-section">
+            <div class="file-header">
+                <div class="file-title">docs/api-spec.md</div>
+                <div class="file-meta">種別: 変更 / old: docs/api-spec.md / new: docs/api-spec.md</div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="no-col">Old</th>
+                            <th>修正前</th>
+                            <th class="no-col">New</th>
+                            <th>修正後</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        
+            <tr>
+                <td class="line-no old-no context">1</td>
+                <td class="code old-code context"><h1 class="rendered-line heading">API仕様書</h1></td>
+                <td class="line-no new-no context">1</td>
+                <td class="code new-code context"><h1 class="rendered-line heading">API仕様書</h1></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no context">2</td>
+                <td class="code old-code context"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no context">2</td>
+                <td class="code new-code context"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no mod-old">3</td>
+                <td class="code old-code mod-old"><div class="rendered-line paragraph">このドキュメントは v1 API を対象とします。</div></td>
+                <td class="line-no new-no mod-new">3</td>
+                <td class="code new-code mod-new"><div class="rendered-line paragraph">このドキュメントは v2 API を対象とします。</div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no context">4</td>
+                <td class="code old-code context"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no context">4</td>
+                <td class="code new-code context"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no context">5</td>
+                <td class="code old-code context"><h2 class="rendered-line heading">エンドポイント</h2></td>
+                <td class="line-no new-no context">5</td>
+                <td class="code new-code context"><h2 class="rendered-line heading">エンドポイント</h2></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no context">6</td>
+                <td class="code old-code context"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no context">6</td>
+                <td class="code new-code context"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">7</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-wrap"><table class="rendered-table"><thead><tr><th>basePath</th><th>/api/v1</th></tr></thead><tbody><tr><td>メソッド</td><td>パス</td><td>説明</td></tr><tr><td>---</td><td>---</td><td>---</td></tr><tr><td>GET</td><td>/users</td><td>ユーザー一覧</td></tr><tr><td>POST</td><td>/users</td><td>ユーザー作成</td></tr></tbody></table></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">7</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-wrap"><table class="rendered-table"><thead><tr><th>basePath</th><th>/api/v2</th></tr></thead><tbody><tr><td>メソッド</td><td>パス</td><td>説明</td></tr><tr><td>---</td><td>---</td><td>---</td></tr><tr><td>GET</td><td>/users</td><td>ユーザー一覧</td></tr><tr><td>POST</td><td>/users/create</td><td>ユーザー作成</td></tr><tr><td>DELETE</td><td>/users/{id}</td><td>ユーザー削除</td></tr></tbody></table></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">8</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">8</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">12</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">12</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">13</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">13</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">14</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">14</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">15</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">15</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">16</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no context">16</td>
+                <td class="code old-code context"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no context">17</td>
+                <td class="code new-code context"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no context">17</td>
+                <td class="code old-code context"><h2 class="rendered-line heading">サンプル</h2></td>
+                <td class="line-no new-no context">18</td>
+                <td class="code new-code context"><h2 class="rendered-line heading">サンプル</h2></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no context">18</td>
+                <td class="code old-code context"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no context">19</td>
+                <td class="code new-code context"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">19</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-wrap"><pre class="rendered-code"><code class="language-bash">curl -X POST https://api.example.com/api/v1/users \
+  -H &quot;Content-Type: application/json&quot; \
+  -d &#39;{&quot;name&quot;:&quot;Taro&quot;}&#39;</code></pre></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">20</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-wrap"><pre class="rendered-code"><code class="language-bash">curl -X POST https://api.example.com/api/v2/users/create \
+  -H &quot;Authorization: Bearer &lt;token&gt;&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d &#39;{&quot;name&quot;:&quot;Taro&quot;,&quot;role&quot;:&quot;admin&quot;}&#39;</code></pre></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">20</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">21</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">22</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">21</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">23</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">22</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">24</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">23</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">25</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    
+        <section class="file-section">
+            <div class="file-header">
+                <div class="file-title">docs/new-feature.md</div>
+                <div class="file-meta">種別: 新規 / old: (なし) / new: docs/new-feature.md</div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="no-col">Old</th>
+                            <th>修正前</th>
+                            <th class="no-col">New</th>
+                            <th>修正後</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no add">1</td>
+                <td class="code new-code add"><h1 class="rendered-line heading">新機能ガイド</h1></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no add">2</td>
+                <td class="code new-code add"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no add">3</td>
+                <td class="code new-code add"><div class="rendered-line paragraph">このファイルは新規追加された Markdown です。</div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no add">4</td>
+                <td class="code new-code add"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no add">5</td>
+                <td class="code new-code add"><h2 class="rendered-line heading">有効化手順</h2></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no add">6</td>
+                <td class="code new-code add"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no add">7</td>
+                <td class="code new-code add"><div class="rendered-line list"><span class="bullet">1.</span><span>管理画面にログイン</span></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no add">8</td>
+                <td class="code new-code add"><div class="rendered-line list"><span class="bullet">2.</span><span>Feature Flag を ON</span></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no add">9</td>
+                <td class="code new-code add"><div class="rendered-line list"><span class="bullet">3.</span><span>アプリケーションを再起動</span></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no add">10</td>
+                <td class="code new-code add"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no add">11</td>
+                <td class="code new-code add"><h2 class="rendered-line heading">設定テーブル</h2></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no add">12</td>
+                <td class="code new-code add"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">13</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-wrap"><table class="rendered-table"><thead><tr><th>キー</th><th>デフォルト</th><th>説明</th></tr></thead><tbody><tr><td>feature.newUI</td><td>false</td><td>新UI切替</td></tr><tr><td>feature.auditLog</td><td>true</td><td>監査ログ</td></tr></tbody></table></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">14</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">15</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">16</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no add">17</td>
+                <td class="code new-code add"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">18</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-wrap"><pre class="rendered-code"><code class="language-json">{&quot;enabled&quot;: true, &quot;rollout&quot;: 100}</code></pre></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">19</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">20</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    
+        <section class="file-section">
+            <div class="file-header">
+                <div class="file-title">docs/legacy-auth.md</div>
+                <div class="file-meta">種別: 削除 / old: docs/legacy-auth.md / new: (なし)</div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="no-col">Old</th>
+                            <th>修正前</th>
+                            <th class="no-col">New</th>
+                            <th>修正後</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        
+            <tr>
+                <td class="line-no old-no del">1</td>
+                <td class="code old-code del"><h1 class="rendered-line heading">旧認証仕様</h1></td>
+                <td class="line-no new-no empty"></td>
+                <td class="code new-code empty"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no del">2</td>
+                <td class="code old-code del"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no empty"></td>
+                <td class="code new-code empty"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no del">3</td>
+                <td class="code old-code del"><div class="rendered-line paragraph">このファイルは削除対象です。</div></td>
+                <td class="line-no new-no empty"></td>
+                <td class="code new-code empty"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no del">4</td>
+                <td class="code old-code del"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no empty"></td>
+                <td class="code new-code empty"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no del">5</td>
+                <td class="code old-code del"><h2 class="rendered-line heading">Basic認証</h2></td>
+                <td class="line-no new-no empty"></td>
+                <td class="code new-code empty"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no del">6</td>
+                <td class="code old-code del"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no empty"></td>
+                <td class="code new-code empty"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">7</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-wrap"><pre class="rendered-code"><code class="language-http">Authorization: Basic dXNlcjpwYXNz</code></pre></div></td>
+                <td class="line-no new-no empty"></td>
+                <td class="code new-code empty"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">8</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no empty"></td>
+                <td class="code new-code empty"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">9</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no empty"></td>
+                <td class="code new-code empty"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no del">10</td>
+                <td class="code old-code del"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no empty"></td>
+                <td class="code new-code empty"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">11</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-wrap"><table class="rendered-table"><thead><tr><th>ヘッダー</th><th>必須</th></tr></thead><tbody><tr><td>Authorization</td><td>必須</td></tr><tr><td>X-Request-Id</td><td>任意</td></tr></tbody></table></div></td>
+                <td class="line-no new-no empty"></td>
+                <td class="code new-code empty"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">12</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no empty"></td>
+                <td class="code new-code empty"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">13</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no empty"></td>
+                <td class="code new-code empty"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">14</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no empty"></td>
+                <td class="code new-code empty"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    
+        <section class="file-section">
+            <div class="file-header">
+                <div class="file-title">docs/release-notes.md</div>
+                <div class="file-meta">種別: 変更 / old: docs/release-notes.md / new: docs/release-notes.md</div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="no-col">Old</th>
+                            <th>修正前</th>
+                            <th class="no-col">New</th>
+                            <th>修正後</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        
+            <tr>
+                <td class="line-no old-no context">1</td>
+                <td class="code old-code context"><h1 class="rendered-line heading">リリースノート</h1></td>
+                <td class="line-no new-no context">1</td>
+                <td class="code new-code context"><h1 class="rendered-line heading">リリースノート</h1></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no context">2</td>
+                <td class="code old-code context"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no context">2</td>
+                <td class="code new-code context"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no context">3</td>
+                <td class="code old-code context"><h2 class="rendered-line heading">2026-05</h2></td>
+                <td class="line-no new-no context">3</td>
+                <td class="code new-code context"><h2 class="rendered-line heading">2026-05</h2></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no mod-old">4</td>
+                <td class="code old-code mod-old"><div class="rendered-line list"><span class="bullet">-</span><span>API v1 のみサポート</span></div></td>
+                <td class="line-no new-no mod-new">4</td>
+                <td class="code new-code mod-new"><div class="rendered-line list"><span class="bullet">-</span><span>API v2 を正式サポート</span></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no add">5</td>
+                <td class="code new-code add"><div class="rendered-line list"><span class="bullet">-</span><span>旧 API v1 は非推奨</span></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no context">5</td>
+                <td class="code old-code context"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no context">6</td>
+                <td class="code new-code context"><div class="rendered-line blank"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no context">6</td>
+                <td class="code old-code context"><h2 class="rendered-line heading">既知の制限</h2></td>
+                <td class="line-no new-no context">7</td>
+                <td class="code new-code context"><h2 class="rendered-line heading">既知の制限</h2></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no mod-old">7</td>
+                <td class="code old-code mod-old"><div class="rendered-line list"><span class="bullet">-</span><span>大量アクセス時に遅延が発生する場合があります。</span></div></td>
+                <td class="line-no new-no mod-new">8</td>
+                <td class="code new-code mod-new"><div class="rendered-line list"><span class="bullet">-</span><span>大量アクセス時に遅延が発生する場合があります。</span></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no add">9</td>
+                <td class="code new-code add"><div class="rendered-line list"><span class="bullet">-</span><span>監査ログ有効時はレスポンスが 5-10% 低下します。</span></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no context">10</td>
+                <td class="code old-code context"><h2 class="rendered-line heading">実装スニペット</h2></td>
+                <td class="line-no new-no context">12</td>
+                <td class="code new-code context"><h2 class="rendered-line heading">実装スニペット</h2></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">11</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-wrap"><pre class="rendered-code"><code class="language-js">const API_BASE = &#39;/api/v1&#39;;
+fetch(`${API_BASE}/users`);</code></pre></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">13</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-wrap"><pre class="rendered-code"><code class="language-js">const API_BASE = &#39;/api/v2&#39;;
+const token = &#39;dummy-token&#39;;
+fetch(`${API_BASE}/users/create`, {
+  headers: { Authorization: `Bearer ${token}` }
+});</code></pre></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">12</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">14</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">13</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">15</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">16</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">17</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no empty"></td>
+                <td class="code old-code empty"><div class="rendered-line blank"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">18</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+            <tr>
+                <td class="line-no old-no md-block-row md-block-changed-old">14</td>
+                <td class="code old-code md-block-row md-block-changed-old"><div class="md-block-fill"></div></td>
+                <td class="line-no new-no md-block-row md-block-changed-new">19</td>
+                <td class="code new-code md-block-row md-block-changed-new"><div class="md-block-fill"></div></td>
+            </tr>
+        
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    
+    </div>
+</body>
+</html>
