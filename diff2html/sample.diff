@@ -1,0 +1,68 @@
+--- a/sample.md
++++ b/sample.md
+@@ -1,5 +1,5 @@
+ # API仕様書
+ 
+-エンドポイントは `v1` を使用してください。
++エンドポイントは `v2` を使用してください。
+ 
+ | メソッド | パス |
+ |---|---|
+@@ -10,3 +10,4 @@
+ | GET | /users |
+-| POST | /users |
++| POST | /users/create |
++| DELETE | /users/{id} |
+
+@@ -15,16 +16,32 @@
+ ## 認証
+
+-認証方式は Basic 認証を利用します。
++認証方式は Bearer Token 認証を利用します。
+
+ ### リクエストヘッダー
+
+ | ヘッダー | 必須 | 説明 |
+ |---|---|---|
+-| Authorization | 任意 | Basic認証情報 |
++| Authorization | 必須 | Bearerトークン |
+ | X-Request-Id | 任意 | トレースID |
++| X-Client-Version | 任意 | クライアントバージョン |
+
+ ### サンプルリクエスト
+
+ ```bash
+-curl -X POST https://api.example.com/v1/users \
+-  -u user:pass \
++curl -X POST https://api.example.com/v2/users/create \
++  -H "Authorization: Bearer <token>" \
+	-H "Content-Type: application/json" \
+-  -d '{"name":"Taro"}'
++  -H "X-Request-Id: req-20260524-001" \
++  -d '{"name":"Taro","role":"admin"}'
+ ```
+
+ ### サンプルレスポンス
+
+ ```json
+ {
+-  "id": 1,
+-  "name": "Taro"
++  "userId": 1,
++  "name": "Taro",
++  "role": "admin",
++  "status": "active"
+ }
+ ```
+
+@@ -34,3 +51,9 @@
+ ## 運用メモ
+
+-タイムアウトは 30 秒です。
++タイムアウトは 15 秒です。
++
++### リトライ方針
++
++1. 5xx エラー時のみ最大 3 回リトライ
++2. 指数バックオフを利用
++3. 4xx エラーはリトライしない
