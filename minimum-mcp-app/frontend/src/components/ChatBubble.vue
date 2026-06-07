@@ -1,7 +1,9 @@
 <template>
   <div :class="['bubble-wrapper', message.role]">
     <div class="avatar">
-      {{ message.role === 'user' ? 'ユーザー' : 'Gemini' }}
+      <span v-if="message.role === 'user'" class="icon-user">👤</span>
+      <span v-else class="icon-model">✨</span>
+      <span class="role-name">{{ message.role === 'user' ? 'User' : 'Gemini' }}</span>
     </div>
     <div class="bubble-content" v-html="renderedContent"></div>
   </div>
@@ -14,11 +16,10 @@ import { marked } from 'marked'
 const props = defineProps({
   message: {
     type: Object,
-    required: true // { role: 'user' | 'model', parts: [{ text: '...' }] }
+    required: true
   }
 })
 
-// Markdown文字列を安全にHTMLへパース
 const renderedContent = computed(() => {
   const text = props.message.parts?.[0]?.text || ''
   return marked.parse(text)
@@ -29,35 +30,97 @@ const renderedContent = computed(() => {
 .bubble-wrapper {
   display: flex;
   flex-direction: column;
-  margin-bottom: 15px;
-  max-width: 80%;
+  margin-bottom: 24px;
+  width: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
 }
+
+/* ユーザー側は全体を右寄せ */
 .user {
-  align-self: flex-end;
   align-items: flex-end;
 }
+
+/* モデル側は全体を左寄せ */
 .model {
-  align-self: flex-start;
   align-items: flex-start;
 }
+
 .avatar {
-  font-size: 0.8rem;
-  color: #666;
-  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #333333; /* 背景が明るいエリアなので黒系の文字色 */
 }
+
+/* ユーザー側は右寄せになるため、アイコンを一番右に配置すると自然になります */
+.user .avatar {
+  flex-direction: row-reverse; 
+}
+
 .bubble-content {
-  padding: 12px;
-  border-radius: 8px;
-  background-color: #f1f1f1;
-  line-height: 1.5;
+  line-height: 1.6;
+  font-size: 0.95rem;
+  padding: 12px 16px;
+  border-radius: 6px;
+  text-align: left; /* 中のテキストは左寄せを維持 */
 }
+
+/* User style */
 .user .bubble-content {
-  background-color: #007bff;
-  color: white;
+  background-color: rgba(0, 122, 204, 0.1);
+  border: 1px solid rgba(0, 122, 204, 0.3);
+  color: #111111; /* 黒文字を指定 */
+  max-width: 85%;
 }
-/* Markdown内部の装飾用スタイル */
-:deep(p) { margin: 0 0 8px 0; }
+
+/* Model style */
+.model .bubble-content {
+  background-color: #1e1e1e;
+  border: 1px solid #3c3c3c;
+  color: #d4d4d4; /* 白文字 */
+  max-width: 95%;
+}
+
+/* Markdown Styles */
+:deep(p) { margin: 0 0 12px 0; }
 :deep(p:last-child) { margin-bottom: 0; }
-:deep(code) { background: #eee; padding: 2px 4px; border-radius: 4px; }
-.user :deep(code) { background: #0056b3; color: white; }
+:deep(a) { color: #3794ff; text-decoration: none; }
+:deep(a:hover) { text-decoration: underline; }
+
+/* ユーザー側のインラインコード (明るい背景用) */
+.user :deep(code) { 
+  font-family: "Consolas", "Courier New", monospace;
+  background-color: rgba(0, 0, 0, 0.05); 
+  color: #0056b3; 
+  padding: 2px 4px; 
+  border-radius: 4px; 
+  font-size: 0.9em;
+}
+
+/* AI側のインラインコード (暗い背景用) */
+.model :deep(code) { 
+  font-family: "Consolas", "Courier New", monospace;
+  background-color: #2d2d2d; 
+  color: #ce9178;
+  padding: 2px 4px; 
+  border-radius: 4px; 
+  font-size: 0.9em;
+}
+
+:deep(pre) {
+  background-color: #1e1e1e !important;
+  border: 1px solid #3c3c3c;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+:deep(pre code) {
+  background-color: transparent !important;
+  color: #d4d4d4 !important;
+  padding: 0;
+}
 </style>
