@@ -1,0 +1,14 @@
+{
+  "name": "get_current_weather",
+  "description": "指定された都市の現在の天気を取得します。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "location": {
+        "type": "string",
+        "description": "都市の英語名（例: Tokyo, Osaka, London）"
+      }
+    },
+    "required": ["location"]
+  }
+}

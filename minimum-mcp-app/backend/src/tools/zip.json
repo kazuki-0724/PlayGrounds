@@ -1,0 +1,14 @@
+{
+  "name": "search_zip_code",
+  "description": "日本の郵便番号（ハイフンなしの7桁）から住所情報を検索します。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "zipcode": {
+        "type": "string",
+        "description": "検索する郵便番号（例: 1000001, 1600022）"
+      }
+    },
+    "required": ["zipcode"]
+  }
+}
